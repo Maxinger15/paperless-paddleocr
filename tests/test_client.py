@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import base64
+import socket
 import ssl
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from types import SimpleNamespace
 
+import httpcore
 import httpx
 import pytest
 from PIL import Image
@@ -236,6 +238,34 @@ def test_transport_errors_are_actionable(monkeypatch):
 
     _install_http(monkeypatch, [tls_error])
     with pytest.raises(client.PaddleOCRClientError, match="TLS failure"):
+        client.ocr_image(Image.new("RGB", (2, 2)), _config())
+
+
+def test_nested_transport_causes_classify_tls_and_dns(monkeypatch):
+    def nested_tls_error():
+        try:
+            try:
+                raise ssl.SSLError("certificate verify failed")
+            except ssl.SSLError as root:
+                raise httpcore.ConnectError("httpcore connect") from root
+        except httpcore.ConnectError as middle:
+            raise httpx.ConnectError("httpx connect") from middle
+
+    _install_http(monkeypatch, [nested_tls_error])
+    with pytest.raises(client.PaddleOCRClientError, match="TLS failure"):
+        client.ocr_image(Image.new("RGB", (2, 2)), _config())
+
+    def nested_dns_error():
+        try:
+            try:
+                raise socket.gaierror("name lookup failed")
+            except socket.gaierror as root:
+                raise httpcore.ConnectError("httpcore connect") from root
+        except httpcore.ConnectError as middle:
+            raise httpx.ConnectError("httpx connect") from middle
+
+    _install_http(monkeypatch, [nested_dns_error])
+    with pytest.raises(client.PaddleOCRClientError, match="resolve"):
         client.ocr_image(Image.new("RGB", (2, 2)), _config())
 
 

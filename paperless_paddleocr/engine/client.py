@@ -9,6 +9,7 @@ import math
 import socket
 import ssl
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -156,6 +157,23 @@ def _status_error(status_code: int, url: str) -> PaddleOCRClientError:
     )
 
 
+def _exception_chain(error: BaseException) -> Iterator[BaseException]:
+    """Yield each reachable cause/context once, even for malformed cyclic chains."""
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        identity = id(current)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        yield current
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+
+
 def _request_error(error: httpx.HTTPError, url: str) -> PaddleOCRClientError:
     if isinstance(error, httpx.TimeoutException):
         return PaddleOCRClientError(
@@ -163,12 +181,12 @@ def _request_error(error: httpx.HTTPError, url: str) -> PaddleOCRClientError:
             "or inspect the serving container."
         )
     if isinstance(error, httpx.ConnectError):
-        cause = error.__cause__
-        if isinstance(cause, ssl.SSLError):
+        chain = list(_exception_chain(error))
+        if any(isinstance(cause, ssl.SSLError) for cause in chain):
             return PaddleOCRClientError(
                 f"PaddleOCR TLS failure at {url}; check TLS verification and CA settings."
             )
-        if isinstance(cause, socket.gaierror):
+        if any(isinstance(cause, socket.gaierror) for cause in chain):
             detail = "could not resolve the PaddleOCR server hostname"
         else:
             detail = "could not connect to the PaddleOCR server"
