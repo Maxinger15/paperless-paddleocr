@@ -17,6 +17,23 @@ from paperless_paddleocr.engine.hocr import Block, Line, Page, Word, write_docum
 log = logging.getLogger("paperless.paddleocr.engine")
 
 
+def _effective_verify_tls(options: Any) -> bool | str:
+    ca_bundle = (getattr(options, "paddleocr_ca_bundle", "") or "").strip()
+    if ca_bundle:
+        return ca_bundle
+    configured = getattr(options, "paddleocr_verify_tls", True)
+    if isinstance(configured, bool):
+        return configured
+    normalized = str(configured).strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    raise client.PaddleOCRClientError(
+        "PaddleOCR TLS verification must be configured as true or false."
+    )
+
+
 def _config(options: Any) -> client.PaddleOCRConfig:
     return client.PaddleOCRConfig(
         server_url=getattr(options, "paddleocr_server_url", "") or "",
@@ -25,7 +42,7 @@ def _config(options: Any) -> client.PaddleOCRConfig:
         api_key=getattr(options, "paddleocr_api_key", "") or "",
         connect_timeout=float(getattr(options, "paddleocr_connect_timeout", 10)),
         read_timeout=float(getattr(options, "paddleocr_read_timeout", 300)),
-        verify_tls=getattr(options, "paddleocr_verify_tls", True),
+        verify_tls=_effective_verify_tls(options),
     )
 
 

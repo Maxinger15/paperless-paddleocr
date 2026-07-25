@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from paperless_paddleocr.engine import client, osd
-from paperless_paddleocr.engine.engine import PaddleOCREngine
+from paperless_paddleocr.engine.engine import PaddleOCREngine, _config
 
 
 def _options(**overrides):
@@ -61,3 +61,12 @@ def test_osd_is_only_orientation_mechanism(tmp_path, monkeypatch):
 def test_languages_and_creator_tag():
     assert PaddleOCREngine.languages(_options(languages=["eng", "deu"])) >= {"eng", "deu"}
     assert "PaddleOCR" in PaddleOCREngine.creator_tag(_options())
+
+
+def test_engine_config_resolves_tls_boolean_and_ca_bundle(tmp_path):
+    assert _config(_options(paddleocr_verify_tls="false")).verify_tls is False
+    assert _config(_options(paddleocr_verify_tls="true")).verify_tls is True
+    ca = tmp_path / "ca.pem"
+    ca.write_text("certificate", encoding="utf-8")
+    configured = _config(_options(paddleocr_verify_tls="true", paddleocr_ca_bundle=str(ca)))
+    assert configured.verify_tls == str(ca)

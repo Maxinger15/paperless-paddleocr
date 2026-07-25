@@ -28,7 +28,7 @@ def test_engine_binding_and_valid_defaults():
     assert isinstance(ocrmypdf_plugin.get_ocr_engine(), PaddleOCREngine)
     options = _options()
     ocrmypdf_plugin.check_options(options)
-    assert options.paddleocr_verify_tls is True
+    assert options.paddleocr_verify_tls == "true"
 
 
 @pytest.mark.parametrize(
@@ -56,14 +56,15 @@ def test_url_endpoint_and_ca_bundle_validation(tmp_path):
     ca.write_text("certificate", encoding="utf-8")
     options = _options(paddleocr_ca_bundle=str(ca))
     ocrmypdf_plugin.check_options(options)
-    assert options.paddleocr_verify_tls == str(ca)
+    assert options.paddleocr_verify_tls == "true"
+    assert options.paddleocr_ca_bundle == str(ca)
 
 
 def test_disabled_tls_warns_and_conflicts_with_ca(tmp_path, caplog):
     with caplog.at_level("WARNING"):
         options = _options(paddleocr_verify_tls="false")
         ocrmypdf_plugin.check_options(options)
-    assert options.paddleocr_verify_tls is False
+    assert options.paddleocr_verify_tls == "false"
     assert "disabled" in caplog.text
     ca = tmp_path / "ca.pem"
     ca.write_text("certificate", encoding="utf-8")
@@ -71,3 +72,24 @@ def test_disabled_tls_warns_and_conflicts_with_ca(tmp_path, caplog):
         ocrmypdf_plugin.check_options(
             _options(paddleocr_verify_tls=False, paddleocr_ca_bundle=str(ca))
         )
+
+
+def test_check_options_does_not_mutate_assignment_validated_options():
+    class RejectAssignment:
+        def __init__(self):
+            object.__setattr__(self, "paddleocr_server_url", "https://ocr.example")
+            object.__setattr__(self, "paddleocr_endpoint", "/ocr")
+            object.__setattr__(self, "paddleocr_connect_timeout", 10)
+            object.__setattr__(self, "paddleocr_read_timeout", 300)
+            object.__setattr__(self, "paddleocr_verify_tls", "true")
+            object.__setattr__(self, "paddleocr_ca_bundle", "")
+            object.__setattr__(self, "_locked", True)
+
+        def __setattr__(self, name, value):
+            if getattr(self, "_locked", False):
+                raise AssertionError(f"unexpected assignment to {name}")
+            object.__setattr__(self, name, value)
+
+    options = RejectAssignment()
+    ocrmypdf_plugin.check_options(options)
+    assert options.paddleocr_verify_tls == "true"

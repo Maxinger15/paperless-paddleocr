@@ -98,12 +98,8 @@ def check_options(options: Any) -> None:
         path = Path(ca_bundle)
         if not path.is_file() or not path.stat().st_size:
             raise ValueError("paddleocr_ca_bundle must name a readable CA certificate file.")
-        options.paddleocr_verify_tls = str(path)
     elif not verify_tls:
         log.warning("PaddleOCR TLS certificate verification is disabled by configuration.")
-        options.paddleocr_verify_tls = False
-    else:
-        options.paddleocr_verify_tls = True
 
 
 @ocrmypdf.hookimpl(tryfirst=True)
