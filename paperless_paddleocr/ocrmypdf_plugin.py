@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +39,8 @@ def _positive_timeout(name: str, value: Any) -> float:
         timeout = float(value)
     except (TypeError, ValueError) as error:
         raise ValueError(f"{name} must be a positive number.") from error
-    if timeout <= 0:
-        raise ValueError(f"{name} must be a positive number.")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError(f"{name} must be a finite positive number.")
     return timeout
 
 

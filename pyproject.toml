@@ -74,4 +74,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
 strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["django.*", "documents.*", "paperless.*", "img2pdf"]
 ignore_missing_imports = true

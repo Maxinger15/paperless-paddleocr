@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import socket
 import ssl
 import time
@@ -40,7 +41,7 @@ class PaddleOCRConfig:
     api_key: str = ""
     connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
     read_timeout: float = DEFAULT_READ_TIMEOUT
-    verify_tls: bool | str = True
+    verify_tls: bool | str | ssl.SSLContext = True
 
     @property
     def url(self) -> str:
@@ -106,9 +107,33 @@ def _retry_after(response: httpx.Response) -> float | None:
             seconds = (when - datetime.now(UTC)).total_seconds()
         except (TypeError, ValueError, IndexError, OverflowError):
             return None
-    if 0 <= seconds <= _MAX_RETRY_AFTER_SECONDS:
+    if math.isfinite(seconds) and 0 <= seconds <= _MAX_RETRY_AFTER_SECONDS:
         return seconds
     return None
+
+
+def _timeout_value(value: Any, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PaddleOCRClientError(f"PaddleOCR {name} timeout must be a finite positive number.")
+    timeout = float(value)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise PaddleOCRClientError(f"PaddleOCR {name} timeout must be a finite positive number.")
+    return timeout
+
+
+def _tls_verify(verify_tls: bool | str | ssl.SSLContext) -> bool | ssl.SSLContext:
+    """Build a TLS context for an operator-supplied CA bundle when configured."""
+    if isinstance(verify_tls, ssl.SSLContext):
+        return verify_tls
+    if isinstance(verify_tls, str):
+        try:
+            return ssl.create_default_context(cafile=verify_tls)
+        except Exception as error:
+            raise PaddleOCRClientError(
+                "PaddleOCR could not load the configured CA bundle; check "
+                "PAPERLESS_PADDLEOCR_CA_BUNDLE."
+            ) from error
+    return verify_tls
 
 
 def _status_error(status_code: int, url: str) -> PaddleOCRClientError:
@@ -160,7 +185,12 @@ def _request_error(error: httpx.HTTPError, url: str) -> PaddleOCRClientError:
 def _number(value: Any, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PaddleOCRClientError(f"PaddleOCR response schema error: {label} must be a number.")
-    return float(value)
+    number = float(value)
+    if not math.isfinite(number):
+        raise PaddleOCRClientError(
+            f"PaddleOCR response schema error: {label} must be a finite number."
+        )
+    return number
 
 
 def _box(value: Any, index: int) -> tuple[float, float, float, float]:
@@ -169,6 +199,21 @@ def _box(value: Any, index: int) -> tuple[float, float, float, float]:
             f"PaddleOCR response schema error: rec_boxes[{index}] must contain four coordinates."
         )
     return tuple(_number(part, f"rec_boxes[{index}]") for part in value)  # type: ignore[return-value]
+
+
+def _validate_polygon(value: Any, index: int) -> None:
+    if not isinstance(value, list):
+        raise PaddleOCRClientError(
+            f"PaddleOCR response schema error: rec_polys[{index}] must be an array of points."
+        )
+    for point_index, point in enumerate(value):
+        if not isinstance(point, list) or len(point) != 2:
+            raise PaddleOCRClientError(
+                f"PaddleOCR response schema error: rec_polys[{index}][{point_index}] "
+                "must contain two coordinates."
+            )
+        _number(point[0], f"rec_polys[{index}][{point_index}][0]")
+        _number(point[1], f"rec_polys[{index}][{point_index}][1]")
 
 
 def parse_response(payload: Any) -> list[RecognitionLine]:
@@ -212,10 +257,13 @@ def parse_response(payload: Any) -> list[RecognitionLine]:
             "PaddleOCR response schema error: recognition arrays have different lengths."
         )
     polys = pruned.get("rec_polys")
-    if polys is not None and (not isinstance(polys, list) or len(polys) != len(texts)):
-        raise PaddleOCRClientError(
-            "PaddleOCR response schema error: rec_polys must match the recognition array length."
-        )
+    if polys is not None:
+        if not isinstance(polys, list) or len(polys) != len(texts):
+            raise PaddleOCRClientError(
+                "PaddleOCR response schema error: rec_polys must match the recognition array length."
+            )
+        for index, polygon in enumerate(polys):
+            _validate_polygon(polygon, index)
 
     lines: list[RecognitionLine] = []
     for index, (text, score, box) in enumerate(zip(texts, scores, boxes, strict=True)):
@@ -248,9 +296,20 @@ def ocr_image(image: Image.Image, config: PaddleOCRConfig) -> list[RecognitionLi
     headers = {"Accept": "application/json"}
     if config.api_key:
         headers["Authorization"] = f"Bearer {config.api_key}"
-    timeout = httpx.Timeout(config.read_timeout, connect=config.connect_timeout)
+    connect_timeout = _timeout_value(config.connect_timeout, "connect")
+    read_timeout = _timeout_value(config.read_timeout, "read")
+    try:
+        timeout = httpx.Timeout(read_timeout, connect=connect_timeout)
+        verify = _tls_verify(config.verify_tls)
+        http = httpx.Client(timeout=timeout, verify=verify)
+    except PaddleOCRClientError:
+        raise
+    except Exception as error:
+        raise PaddleOCRClientError(
+            "PaddleOCR could not construct its HTTP client; check TLS and timeout configuration."
+        ) from error
 
-    with httpx.Client(timeout=timeout, verify=config.verify_tls) as http:
+    with http:
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 response = http.post(url, json=payload, headers=headers)

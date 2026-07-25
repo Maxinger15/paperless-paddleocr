@@ -32,7 +32,13 @@ def test_engine_binding_and_valid_defaults():
 
 
 @pytest.mark.parametrize(
-    "name,value", [("paddleocr_connect_timeout", 0), ("paddleocr_read_timeout", "bad")]
+    "name,value",
+    [
+        ("paddleocr_connect_timeout", 0),
+        ("paddleocr_read_timeout", "bad"),
+        ("paddleocr_connect_timeout", float("nan")),
+        ("paddleocr_read_timeout", float("inf")),
+    ],
 )
 def test_timeouts_must_be_positive(name, value):
     with pytest.raises(ValueError, match="positive"):
