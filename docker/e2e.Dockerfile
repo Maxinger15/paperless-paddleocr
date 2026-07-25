@@ -3,11 +3,11 @@
 FROM python:3.12-slim AS plugin
 WORKDIR /src
 COPY pyproject.toml README.md LICENSE ./
-COPY paperless_chandra ./paperless_chandra
+COPY paperless_paddleocr ./paperless_paddleocr
 RUN pip install --no-cache-dir build \
  && python -m build --wheel --outdir /dist
 
-FROM ghcr.io/paperless-ngx/paperless-ngx:latest
+FROM ghcr.io/paperless-ngx/paperless-ngx:3.0.2
 COPY --from=plugin /dist/*.whl /tmp/plugin/
 RUN pip install --no-cache-dir /tmp/plugin/*.whl \
  && rm -rf /tmp/plugin

@@ -45,8 +45,8 @@ deploy/
 # e2e stub consume dir (generated test input, not part of the repo)
 tests/e2e/consume/
 
-# e2e llama.cpp model weights (downloaded by download-model.sh, ~4 GB)
-tests/e2e/models/
+# e2e service cache (downloaded PP-OCRv6 models, not part of the repo)
+tests/e2e/paddlex-cache/
 
 # Local session scratch (not committed)
 .superpowers/

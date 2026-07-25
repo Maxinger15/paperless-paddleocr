@@ -1,24 +1,21 @@
 # syntax=docker/dockerfile:1.7
 #
-# paperless-ngx + paperless-chandra.
-# OCR recognition is delegated to a separate OpenAI-compatible inference
-# server (vLLM, llama.cpp, Ollama) - see docker-compose.vllm.yml for the
-# matching runtime config.
+# paperless-ngx + paperless-paddleocr.
+# OCR recognition is delegated to a separate PP-OCRv6 PaddleX CPU service;
+# see docker-compose.yml for the matching runtime config.
 #
 # Build:
 #   docker build \
-#     --build-arg PLUGIN_REF=v0.1.0 \
 #     -f examples/Dockerfile \
-#     -t paperless-chandra:latest .
+#     -t paperless-paddleocr:0.1.0 .
 
-ARG PLUGIN_REF=master
-ARG PAPERLESS_TAG=latest
+ARG PAPERLESS_TAG=3.0.2
 
 # --- Stage 1: build the plugin wheel from source --------------------------
 FROM python:3.12-slim AS plugin
-ARG PLUGIN_REF
-ADD https://github.com/flobernd/paperless-chandra.git#${PLUGIN_REF} /src
-WORKDIR /src
+WORKDIR /build
+COPY pyproject.toml README.md LICENSE ./
+COPY paperless_paddleocr ./paperless_paddleocr
 RUN pip install --no-cache-dir build \
  && python -m build --wheel --outdir /dist
 

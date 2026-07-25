@@ -1,4 +1,4 @@
-# Builder image: produces the paperless-chandra wheel.
+# Builder image: produces the paperless-paddleocr wheel.
 #
 # The version-controlled build recipe for the plugin. The wheel is
 # extracted from /dist (docker create + docker cp, see README) and staged
@@ -14,7 +14,7 @@ WORKDIR /src
 # references (readme + license). Copied explicitly so unrelated repo content
 # does not invalidate the layer cache.
 COPY pyproject.toml README.md LICENSE ./
-COPY paperless_chandra ./paperless_chandra
+COPY paperless_paddleocr ./paperless_paddleocr
 
 # Produce the wheel under /dist.
 RUN pip install --no-cache-dir build \

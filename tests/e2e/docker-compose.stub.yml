@@ -1,6 +1,6 @@
-# Full-pipeline e2e against a stub OpenAI-compatible server. Deterministic
-# and CPU-cheap: verifies consumer -> parser -> ocrmypdf -> engine -> HTTP
-# -> hOCR -> PDF/A -> API, not OCR accuracy.
+# Full-pipeline e2e against a deterministic PaddleX /ocr stub. CPU-cheap:
+# verifies consumer -> parser -> ocrmypdf -> HTTP -> hOCR -> PDF/A -> API,
+# including a rotated page, but not OCR accuracy.
 
 services:
   paperless:
@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
-      - stub
+      - paddleocr-stub
     ports:
       - "8000:8000"
     volumes:
@@ -22,15 +22,15 @@ services:
       PAPERLESS_ADMIN_PASSWORD: admin
       PAPERLESS_OCR_LANGUAGE: eng
       PAPERLESS_OCR_ROTATE_PAGES: "true"
-      PAPERLESS_CHANDRA_SERVER_URL: http://stub:8080
+      PAPERLESS_PADDLEOCR_SERVER_URL: http://paddleocr-stub:8080
       PAPERLESS_CONSUMER_POLLING: "5"
 
-  stub:
+  paddleocr-stub:
     image: python:3.12-slim
     restart: unless-stopped
     volumes:
-      - ./stub_chandra.py:/srv/stub_chandra.py:ro
-    command: ["python", "/srv/stub_chandra.py"]
+      - ./stub_paddlex.py:/srv/stub_paddlex.py:ro
+    command: ["python", "/srv/stub_paddlex.py"]
     expose:
       - "8080"
 

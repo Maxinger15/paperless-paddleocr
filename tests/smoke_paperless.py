@@ -5,12 +5,12 @@ with the real paperless-ngx runtime on ``PYTHONPATH``. Its job is to catch
 the failure modes the lightweight unit suite cannot:
 
 * the ``paperless_ngx.parsers`` entry point is actually discoverable, and
-  resolves to :class:`PaperlessChandraParser`;
-* ``paperless_chandra.parser`` imports cleanly against the *real*
+  resolves to :class:`PaperlessPaddleOCRParser`;
+* ``paperless_paddleocr.parser`` imports cleanly against the *real*
   paperless-ngx API surface (``documents.parsers``, ``paperless.config``,
   ``paperless.parsers.*``) - i.e. paperless has not renamed/moved anything
   the parser depends on;
-* ``paperless_chandra.ocrmypdf_plugin`` imports and the ocrmypdf hookimpl
+* ``paperless_paddleocr.ocrmypdf_plugin`` imports and the ocrmypdf hookimpl
   wiring binds our engine.
 
 Exit code is non-zero on the first failed check so callers fail loudly.
@@ -35,21 +35,21 @@ def check_entry_point() -> None:
 
     eps = importlib.metadata.entry_points(group="paperless_ngx.parsers")
     names = {ep.name: ep for ep in eps}
-    if "chandra" not in names:
-        _fail(f"entry point 'chandra' not found in paperless_ngx.parsers ({sorted(names)})")
-    target = names["chandra"].value
-    if "PaperlessChandraParser" not in target:
-        _fail(f"entry point 'chandra' resolves to unexpected target: {target!r}")
-    _ok(f"entry point discoverable: chandra -> {target}")
+    if "paddleocr" not in names:
+        _fail(f"entry point 'paddleocr' not found in paperless_ngx.parsers ({sorted(names)})")
+    target = names["paddleocr"].value
+    if "PaperlessPaddleOCRParser" not in target:
+        _fail(f"entry point 'paddleocr' resolves to unexpected target: {target!r}")
+    _ok(f"entry point discoverable: paddleocr -> {target}")
 
 
 def check_plugin_wiring() -> None:
-    from paperless_chandra.engine.engine import ChandraEngine
-    from paperless_chandra.ocrmypdf_plugin import get_ocr_engine
+    from paperless_paddleocr.engine.engine import PaddleOCREngine
+    from paperless_paddleocr.ocrmypdf_plugin import get_ocr_engine
 
     engine = get_ocr_engine()
-    if not isinstance(engine, ChandraEngine):
-        _fail(f"get_ocr_engine() returned {type(engine).__name__}, expected ChandraEngine")
+    if not isinstance(engine, PaddleOCREngine):
+        _fail(f"get_ocr_engine() returned {type(engine).__name__}, expected PaddleOCREngine")
     _ok("ocrmypdf plugin wiring OK")
 
 
@@ -60,19 +60,19 @@ def check_parser_imports() -> None:
 
     django.setup()
 
-    from paperless_chandra.parser import PaperlessChandraParser
+    from paperless_paddleocr.parser import PaperlessPaddleOCRParser
 
-    mimes = PaperlessChandraParser.supported_mime_types()
+    mimes = PaperlessPaddleOCRParser.supported_mime_types()
     if "application/pdf" not in mimes:
         _fail(f"application/pdf missing from supported_mime_types(): {mimes}")
-    score = PaperlessChandraParser.score("application/pdf", "doc.pdf")
+    score = PaperlessPaddleOCRParser.score("application/pdf", "doc.pdf")
     if score is None or score <= 10:
         _fail(f"score() should beat Tesseract's 10, got {score!r}")
     _ok(f"parser imports against real paperless-ngx; score={score}")
 
 
 def main() -> None:
-    print("== paperless-chandra smoke test ==", flush=True)
+    print("== paperless-paddleocr smoke test ==", flush=True)
     check_entry_point()
     check_plugin_wiring()
     check_parser_imports()

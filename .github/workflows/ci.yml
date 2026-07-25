@@ -10,155 +10,101 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint
+  lint-docs:
+    name: YAML and Markdown
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Lint YAML
         uses: ibiqlik/action-yamllint@v3
         with:
           config_file: .yamllint
-
       - name: Lint Markdown
         uses: DavidAnson/markdownlint-cli2-action@v18
         with:
-          globs: "**/*.md"
           config: .markdownlint.yaml
+          globs: "**/*.md"
 
-  ruff:
-    name: Ruff
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # astral-sh/ruff-action replaces the deleted reviewdog/action-ruff-pr;
-      # --output-format=github emits PR annotations. Exact tag: upstream
-      # publishes no floating v4 major alias, so @v4 does not resolve.
-      - name: Run Ruff
-        uses: astral-sh/ruff-action@v4.1.0
-        with:
-          args: "check --output-format=github"
-
-  mypy:
-    name: MyPy
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install mypy and typed runtime deps
-        run: |
-          python -m pip install --upgrade pip mypy
-          python -m pip install "ocrmypdf>=17.4" "chandra-ocr>=0.2" "beautifulsoup4>=4.12" numpy
-
-      # reviewdog/action-mypy was deleted; reviewdog/action-setup installs the
-      # reviewdog CLI, which parses mypy's column output into PR annotations.
-      - name: Install reviewdog
-        uses: reviewdog/action-setup@v1
-
-      - name: Run MyPy with reviewdog
-        run: |
-          mypy --ignore-missing-imports --show-column-numbers --no-pretty --no-error-summary paperless_chandra 2>&1 | \
-            reviewdog -name=mypy -efm="%f:%l:%c: %m" \
-              -reporter=github-pr-review -filter-mode=diff_context \
-              -level=warning -fail-on-error=true
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Gates ruff (lint + format) and mypy on every push and PR; the ruff and
-  # mypy jobs above add inline PR review annotations on pull requests.
   static:
-    name: Static checks
+    name: Ruff and MyPy
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install ruff, mypy and typed runtime deps
+      - name: Install static-check dependencies
         run: |
           python -m pip install --upgrade pip ruff mypy
-          python -m pip install "ocrmypdf>=17.4" "chandra-ocr>=0.2" "beautifulsoup4>=4.12" numpy
-
-      # Mirrors the reviewdog `ruff`/`mypy` jobs (which only annotate PRs)
-      # so a direct push to master is gated too. Also gates `ruff format`,
-      # which the reviewdog jobs do not check.
+          python -m pip install "ocrmypdf>=17.4" httpx numpy pillow
       - name: Ruff lint
-        run: ruff check .
-
+        run: ruff check paperless_paddleocr tests
       - name: Ruff format
-        run: ruff format --check .
-
+        run: ruff format --check paperless_paddleocr tests
       - name: MyPy
-        run: mypy --ignore-missing-imports paperless_chandra
+        run: mypy paperless_paddleocr
 
   tests:
-    name: Tests
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install runtime + test deps
+      - name: Install runtime and test dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install . pytest pikepdf
-
-      - name: Run pytest
-        run: pytest tests/ -q
+      - name: Run full unit suite
+        run: pytest tests/test_*.py -q
 
   build:
-    name: Build
+    name: Build and wheel import
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install build tools
-        run: python -m pip install --upgrade pip build wheel
-
       - name: Build sdist and wheel
-        run: python -m build
-
-      - name: Verify wheel installs
         run: |
-          python -m pip install --no-deps dist/*.whl
-          python -c "import paperless_chandra; print(paperless_chandra.__version__)"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+          python -m pip install --upgrade pip build wheel
+          python -m build
+      - name: Verify wheel installation and import
+        run: |
+          python -m venv /tmp/paperless-paddleocr-wheel
+          /tmp/paperless-paddleocr-wheel/bin/pip install --no-deps dist/*.whl
+          /tmp/paperless-paddleocr-wheel/bin/python -c "import paperless_paddleocr; print(paperless_paddleocr.__version__)"
+      - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/*
           if-no-files-found: error
+
+  paperless-smoke:
+    name: Paperless 3.0.2 parser smoke
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/paperless-ngx/paperless-ngx:3.0.2
+      options: --entrypoint /bin/bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate Paperless Python
+        id: py
+        run: |
+          if [ -x /usr/src/paperless/.venv/bin/python ]; then
+            echo "bin=/usr/src/paperless/.venv/bin/python" >> "$GITHUB_OUTPUT"
+          else
+            echo "bin=$(command -v python3)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install package and run parser-discovery smoke
+        env:
+          PYTHONPATH: /usr/src/paperless/src
+          DJANGO_SETTINGS_MODULE: paperless.settings
+          PAPERLESS_REDIS: redis://localhost:6379
+          PAPERLESS_DBENGINE: sqlite
+          PAPERLESS_SECRET_KEY: smoke-test-not-a-real-secret
+        run: |
+          "${{ steps.py.outputs.bin }}" -m pip install --break-system-packages .
+          "${{ steps.py.outputs.bin }}" tests/smoke_paperless.py

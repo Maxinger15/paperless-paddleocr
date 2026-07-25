@@ -1,0 +1,74 @@
+# Complete paperless-ngx 3.0.2 + PP-OCRv6 CPU stack.
+# Run from this directory after setting PAPERLESS_DB_USER and
+# PAPERLESS_DB_PASSWORD in .env (or exporting them in the shell).
+services:
+  paperless:
+    build:
+      context: ..
+      dockerfile: examples/Dockerfile
+      args:
+        PAPERLESS_TAG: ${PAPERLESS_TAG:-3.0.2}
+    image: paperless-paddleocr:local
+    restart: unless-stopped
+    depends_on:
+      paperless-db:
+        condition: service_healthy
+      paperless-redis:
+        condition: service_started
+      paddleocr-server:
+        # The healthcheck proves only that TCP port 8080 is listening; PaddleX
+        # can still be downloading/loading models. The client retries requests.
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - paperless_data:/usr/src/paperless/data
+      - paperless_media:/usr/src/paperless/media
+      - ./consume:/usr/src/paperless/consume
+    environment:
+      PAPERLESS_REDIS: redis://paperless-redis:6379
+      PAPERLESS_DBHOST: paperless-db
+      PAPERLESS_DBUSER: ${PAPERLESS_DB_USER:?set PAPERLESS_DB_USER in .env}
+      PAPERLESS_DBPASS: ${PAPERLESS_DB_PASSWORD:?set PAPERLESS_DB_PASSWORD in .env}
+      PAPERLESS_OCR_LANGUAGE: deu+eng
+      PAPERLESS_PADDLEOCR_SERVER_URL: http://paddleocr-server:8080
+
+  paddleocr-server:
+    build:
+      context: ..
+      dockerfile: docker/paddleocr.Dockerfile
+    image: paperless-paddleocr-server:local
+    restart: unless-stopped
+    expose:
+      - "8080"
+    volumes:
+      # Preserve downloaded PP-OCRv6 and preprocessor model files.
+      - paddlex_models:/root/.paddlex
+
+  paperless-db:
+    image: postgres:16
+    restart: unless-stopped
+    volumes:
+      - paperless_db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: ${PAPERLESS_DB_USER:?set PAPERLESS_DB_USER in .env}
+      POSTGRES_PASSWORD: ${PAPERLESS_DB_PASSWORD:?set PAPERLESS_DB_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  paperless-redis:
+    image: redis:8
+    restart: unless-stopped
+    volumes:
+      - paperless_redis:/data
+
+volumes:
+  paperless_data:
+  paperless_media:
+  paperless_db:
+  paperless_redis:
+  paddlex_models:

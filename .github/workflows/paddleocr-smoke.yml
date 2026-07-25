@@ -1,0 +1,28 @@
+name: PaddleOCR service smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-service:
+    name: Build and smoke PP-OCRv6 CPU service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dedicated PaddleX service
+        run: docker build -f docker/paddleocr.Dockerfile -t paperless-paddleocr-server:ci .
+      - name: Start service with persistent model cache
+        run: |
+          docker volume create paddlex_models
+          docker run -d --name paddleocr-smoke -p 8080:8080 --volume paddlex_models:/root/.paddlex paperless-paddleocr-server:ci
+      - name: Run real /ocr contract smoke
+        run: python tests/smoke_paddlex_service.py --url http://localhost:8080 --timeout 900
+      - name: Print service logs after failure
+        if: failure()
+        run: docker logs paddleocr-smoke
+      - name: Stop service
+        if: always()
+        run: docker rm -f paddleocr-smoke || true

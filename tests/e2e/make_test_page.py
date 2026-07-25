@@ -19,16 +19,16 @@ _BODY_BOTTOM = 1800  # keep text out of the lower half so the ink centroid stays
 _LINE_STEP = 75
 
 _BODY_LINES = [
-    "Vielen Dank fuer Ihren Einkauf bei Paperless Chandra.",
-    "Bitte pruefen Sie die Rechnung auf Vollstaendigkeit.",
+    "Vielen Dank für Ihren Einkauf bei Paperless PaddleOCR.",
+    "Bitte prüfen Sie die Rechnung auf Vollständigkeit.",
     "Zahlbar innerhalb von vierzehn Tagen ohne Abzug.",
     "Bei Rueckfragen wenden Sie sich an unseren Support.",
-    "Diese Seite dient ausschliesslich Testzwecken.",
-    "Alle Angaben ohne Gewaehr auf Richtigkeit.",
-    "Der Versand erfolgte am zwoelften Juli zweitausendsechsundzwanzig.",
+    "Diese Seite dient ausschließlich Testzwecken.",
+    "Alle Angaben ohne Gewähr auf Richtigkeit.",
+    "Der Versand erfolgte am zwölften Juli zweitausendsechsundzwanzig.",
     "Lieferadresse entspricht der Rechnungsadresse des Kunden.",
     "Die Mehrwertsteuer ist in obigem Betrag bereits enthalten.",
-    "Fuer Rueckgaben gilt eine Frist von dreissig Tagen.",
+    "Für Rückgaben gilt eine Frist von dreißig Tagen.",
 ]
 
 
@@ -38,7 +38,7 @@ def main(out_path: str, rotate_deg: int = 0) -> None:
     font_big = ImageFont.load_default(size=108)
     font_body = ImageFont.load_default(size=72)
     draw.text((180, 300), "RECHNUNG 2026-0042", fill="black", font=font_big)
-    draw.text((180, 630), "PAPERLESS CHANDRA END TO END", fill="black", font=font_body)
+    draw.text((180, 630), "PAPERLESS PADDLEOCR END TO END", fill="black", font=font_body)
     draw.text((180, 810), "Betrag: 123,45 EUR", fill="black", font=font_body)
     y = 990
     for line in itertools.cycle(_BODY_LINES):

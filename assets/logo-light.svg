@@ -1,30 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 210" role="img" aria-label="paperless-chandra">
-  <title>paperless-chandra</title>
-  <defs>
-    <linearGradient id="moon-l" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6366F1"/>
-      <stop offset="1" stop-color="#8B5CF6"/>
-    </linearGradient>
-    <mask id="bite-l" maskUnits="userSpaceOnUse">
-      <circle cx="44" cy="52" r="42" fill="#fff"/>
-      <circle cx="68" cy="40" r="40" fill="#000"/>
-    </mask>
-  </defs>
-
-  <g transform="translate(84,16)">
-    <g mask="url(#bite-l)">
-      <circle cx="44" cy="52" r="42" fill="url(#moon-l)"/>
-    </g>
-    <rect x="38" y="18" width="50" height="64" rx="8" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="2"/>
-    <rect x="47" y="30" width="26" height="5" rx="2.5" fill="#6366F1"/>
-    <rect x="47" y="41" width="32" height="4" rx="2" fill="#94A3B8"/>
-    <rect x="47" y="50" width="32" height="4" rx="2" fill="#94A3B8"/>
-    <rect x="47" y="59" width="24" height="4" rx="2" fill="#94A3B8"/>
-    <rect x="47" y="68" width="18" height="4" rx="2" fill="#94A3B8"/>
-  </g>
-
-  <text x="140" y="166" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="27" letter-spacing="-0.3">
-    <tspan fill="#475569" font-weight="500">paperless-</tspan><tspan fill="#4F46E5" font-weight="700">chandra</tspan>
-  </text>
-  <text x="140" y="190" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" letter-spacing="0.5" fill="#94A3B8">Chandra OCR for paperless-ngx</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 180" role="img" aria-label="paperless-paddleocr">
+  <title>paperless-paddleocr</title>
+  <rect width="800" height="180" rx="28" fill="#f8fafc"/>
+  <path d="M58 125V55h58c23 0 38 13 38 35s-15 35-38 35H82V55" fill="none" stroke="#2563eb" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/>
+  <path d="M96 79h31M96 103h31" stroke="#2563eb" stroke-linecap="round" stroke-width="12"/>
+  <text x="190" y="96" fill="#1e293b" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif" font-size="50" font-weight="700">paperless-</text>
+  <text x="466" y="96" fill="#2563eb" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif" font-size="50" font-weight="800">paddleocr</text>
+  <text x="194" y="132" fill="#64748b" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif" font-size="20">PP-OCRv6 for paperless-ngx</text>
 </svg>
