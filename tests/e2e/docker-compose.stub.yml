@@ -22,6 +22,10 @@ services:
       PAPERLESS_ADMIN_PASSWORD: admin
       PAPERLESS_OCR_LANGUAGE: eng
       PAPERLESS_OCR_ROTATE_PAGES: "true"
+      # OCRmyPDF's image-to-PDF conversion lowers this fixture's OSD confidence
+      # from 14.54 on the source PNG to 9.78. Keep the production default
+      # untouched while exercising the actual rotate-pages callback in E2E.
+      PAPERLESS_OCR_ROTATE_PAGES_THRESHOLD: "8"
       PAPERLESS_PADDLEOCR_SERVER_URL: http://paddleocr-stub:8080
       PAPERLESS_CONSUMER_POLLING: "5"
 
