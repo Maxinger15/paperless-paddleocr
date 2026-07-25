@@ -294,9 +294,10 @@ def parse_response(payload: Any) -> list[RecognitionLine]:
             raise PaddleOCRClientError(
                 f"PaddleOCR response schema error: rec_scores[{index}] must be between 0 and 1."
             )
+        numeric_box = _box(box, index)
         if not text.strip():
             continue
-        lines.append(RecognitionLine(text=text.strip(), score=numeric_score, box=_box(box, index)))
+        lines.append(RecognitionLine(text=text.strip(), score=numeric_score, box=numeric_box))
     return lines
 
 

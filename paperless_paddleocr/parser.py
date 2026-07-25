@@ -96,7 +96,7 @@ class PaperlessPaddleOCRParser:
     name: str = "Paperless-ngx PaddleOCR Parser"
     version: str = __version__
     author: str = "Florian Bernd"
-    url: str = "https://github.com/flobernd/paperless-paddleocr"
+    url: str = "https://github.com/Maxinger15/paperless-paddleocr"
 
     # ------------------------------------------------------------------
     # Class methods

@@ -346,6 +346,30 @@ def test_polygons_and_nonfinite_values_are_validated():
 
 
 @pytest.mark.parametrize(
+    "box,match",
+    [
+        ("box", "four coordinates"),
+        ([0, 0, float("inf"), 1], "finite"),
+    ],
+)
+def test_blank_text_still_validates_box(box, match):
+    payload = _payload()
+    pruned = payload["result"]["ocrResults"][0]["prunedResult"]
+    pruned["rec_texts"] = ["  \t"]
+    pruned["rec_boxes"] = [box]
+
+    with pytest.raises(client.PaddleOCRClientError, match=match):
+        client.parse_response(payload)
+
+
+def test_blank_text_with_valid_box_returns_empty_page():
+    payload = _payload()
+    payload["result"]["ocrResults"][0]["prunedResult"]["rec_texts"] = ["  \t"]
+
+    assert client.parse_response(payload) == []
+
+
+@pytest.mark.parametrize(
     "name,value", [("connect_timeout", float("nan")), ("read_timeout", float("inf"))]
 )
 def test_nonfinite_timeouts_are_rejected_before_client_construction(monkeypatch, name, value):

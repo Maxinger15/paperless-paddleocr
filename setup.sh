@@ -15,7 +15,7 @@
 #   * paperless_paddleocr-*.whl    (wheel - any version, first match wins)
 #
 # Obtain one with either of:
-#   pip wheel --no-deps "git+https://github.com/flobernd/paperless-paddleocr.git@v0.1.0"
+#   pip wheel --no-deps "git+https://github.com/Maxinger15/paperless-paddleocr.git@v0.1.0"
 #   # or build docker/builder.Dockerfile and copy its /dist output
 #
 # The install is idempotent: repeated container restarts skip work that

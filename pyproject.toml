@@ -35,8 +35,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/flobernd/paperless-paddleocr"
-Issues = "https://github.com/flobernd/paperless-paddleocr/issues"
+Homepage = "https://github.com/Maxinger15/paperless-paddleocr"
+Issues = "https://github.com/Maxinger15/paperless-paddleocr/issues"
 
 [project.entry-points."paperless_ngx.parsers"]
 paddleocr = "paperless_paddleocr.parser:PaperlessPaddleOCRParser"
