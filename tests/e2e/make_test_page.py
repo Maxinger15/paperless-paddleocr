@@ -22,7 +22,7 @@ _BODY_LINES = [
     "Vielen Dank für Ihren Einkauf bei Paperless PaddleOCR.",
     "Bitte prüfen Sie die Rechnung auf Vollständigkeit.",
     "Zahlbar innerhalb von vierzehn Tagen ohne Abzug.",
-    "Bei Rueckfragen wenden Sie sich an unseren Support.",
+    "Bei Rückfragen wenden Sie sich an unseren Support.",
     "Diese Seite dient ausschließlich Testzwecken.",
     "Alle Angaben ohne Gewähr auf Richtigkeit.",
     "Der Versand erfolgte am zwölften Juli zweitausendsechsundzwanzig.",

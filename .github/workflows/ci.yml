@@ -38,9 +38,9 @@ jobs:
           python -m pip install --upgrade pip ruff mypy
           python -m pip install "ocrmypdf>=17.4" httpx numpy pillow
       - name: Ruff lint
-        run: ruff check paperless_paddleocr tests
+        run: ruff check paperless_paddleocr tests docker/*.py
       - name: Ruff format
-        run: ruff format --check paperless_paddleocr tests
+        run: ruff format --check paperless_paddleocr tests docker/*.py
       - name: MyPy
         run: mypy paperless_paddleocr
 

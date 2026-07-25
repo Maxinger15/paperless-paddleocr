@@ -7,7 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir \
         paddlepaddle==3.2.1 \
         "paddlex[ocr-core]==3.7.2" \
         paddleocr==3.7.0 \

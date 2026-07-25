@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
+import re
 import struct
 import time
 import urllib.error
@@ -28,6 +30,8 @@ _FONT = {
     "Ü": ("101", "000", "101", "101", "101", "101", "111"),
     "Ö": ("101", "000", "010", "101", "101", "101", "010"),
 }
+_TRANSIENT_HTTP_STATUSES = {500, 502, 503, 504}
+_MAX_ERROR_BODY_BYTES = 512
 
 
 def _chunk(kind: bytes, payload: bytes) -> bytes:
@@ -83,6 +87,37 @@ def _validate(payload: Any) -> None:
         raise SystemExit("PaddleX response needs one ocrResults entry and four result arrays.")
     if len({len(value) for value in arrays}) != 1:
         raise SystemExit("PaddleX recognition result arrays have inconsistent lengths.")
+    texts, scores, boxes, polygons = arrays
+    if not texts:
+        raise SystemExit("PaddleX returned no recognition results for the German smoke image.")
+    for index, text in enumerate(texts):
+        if not isinstance(text, str) or not text.strip():
+            continue
+        score, box, polygon = scores[index], boxes[index], polygons[index]
+        if (
+            isinstance(score, (int, float))
+            and not isinstance(score, bool)
+            and math.isfinite(score)
+            and isinstance(box, list)
+            and len(box) == 4
+            and isinstance(polygon, list)
+            and polygon
+        ):
+            return
+        raise SystemExit(
+            "PaddleX recognized text without a matching nonempty score, box, and polygon entry."
+        )
+    raise SystemExit("PaddleX returned only blank recognition strings for the German smoke image.")
+
+
+def _bounded_error_body(error: urllib.error.HTTPError) -> str:
+    body = error.read(_MAX_ERROR_BODY_BYTES).decode("utf-8", errors="replace").strip()
+    # Do not print accidental credentials if a proxy returns an echoed header/body.
+    return re.sub(
+        r"(?i)(authorization|api[_-]?key|token|password)\s*[=:]\s*[^\s,}]+",
+        r"\1=[redacted]",
+        body,
+    )
 
 
 def main() -> None:
@@ -117,8 +152,19 @@ def main() -> None:
                 _validate(json.loads(response.read()))
             print("PaddleX PP-OCRv6 /ocr contract smoke passed")
             return
-        except (OSError, ValueError, urllib.error.HTTPError, urllib.error.URLError) as error:
+        except urllib.error.HTTPError as error:
+            body = _bounded_error_body(error)
+            detail = f"HTTP {error.code}" + (f": {body}" if body else "")
+            if error.code not in _TRANSIENT_HTTP_STATUSES:
+                raise SystemExit(
+                    f"PaddleX rejected the smoke request permanently ({detail})."
+                ) from error
+            last_error = detail
+        except (OSError, urllib.error.URLError) as error:
             last_error = str(error)
+        except ValueError as error:
+            raise SystemExit(f"PaddleX returned an invalid /ocr response: {error}") from error
+        if time.monotonic() < deadline:
             time.sleep(5)
     raise SystemExit(f"PaddleX did not become inference-ready within {args.timeout}s: {last_error}")
 
