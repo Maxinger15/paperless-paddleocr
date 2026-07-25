@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from paperless_chandra.engine import osd
+from paperless_paddleocr.engine import osd
 
 CANNED_OSD_OUTPUT = b"""Page number: 0
 Orientation in degrees: 180

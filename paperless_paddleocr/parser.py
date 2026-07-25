@@ -1,17 +1,13 @@
-"""Paperless-ngx parser plugin that runs ocrmypdf with the Chandra engine.
+"""Paperless-ngx parser plugin that runs OCRmyPDF with PP-OCRv6.
 
 This parser mirrors ``paperless.parsers.tesseract.RasterisedDocumentParser``
 almost exactly. The structural differences are:
 
-* ``plugins=["paperless_chandra.ocrmypdf_plugin"]`` is added so ocrmypdf
-  loads the Chandra engine instead of Tesseract.
-* No language mapping: Chandra is language-agnostic and reads mixed
-  scripts in a single pass, so ``PAPERLESS_OCR_LANGUAGE`` is passed
-  through verbatim (it still drives paperless's own search stemming, and
-  its first code labels the hOCR).
-* The ``chandra_*`` family (server URL, model name, API key, output token
-  budget, content format) is passed through as ocrmypdf kwargs
-  (registered as CLI args by the ``add_options`` hookimpl).
+* ``plugins=["paperless_paddleocr.ocrmypdf_plugin"]`` loads PaddleOCR.
+* Paperless's requested OCR language is retained for hOCR and document
+  behaviour; PP-OCRv6 itself recognises the rasterised page remotely.
+* The ``paddleocr_*`` connection settings are registered as OCRmyPDF kwargs
+  by the plugin hook.
 
 Everything else - image alpha removal, DPI handling, PDF/A conversion,
 ``OCR_MODE`` semantics, the safe-fallback retry - is identical to the
@@ -45,20 +41,20 @@ from paperless.parsers.utils import (
 )
 from PIL import Image
 
-from paperless_chandra import __version__
+from paperless_paddleocr import __version__
 
 if TYPE_CHECKING:
     from types import TracebackType
 
     from paperless.parsers import MetadataEntry, ParserContext
 
-logger = logging.getLogger("paperless.parsing.chandra")
+logger = logging.getLogger("paperless.parsing.paddleocr")
 
 _SRGB_ICC_DATA: Final[bytes] = (
     importlib.resources.files("ocrmypdf.data").joinpath("sRGB.icc").read_bytes()
 )
 
-# Identical to tesseract.py - paperless-chandra is intended as a drop-in
+# Identical to tesseract.py - this parser is intended as a drop-in
 # replacement, so the supported-MIME set must match exactly.
 _SUPPORTED_MIME_TYPES: Final[dict[str, str]] = {
     "application/pdf": ".pdf",
@@ -71,7 +67,7 @@ _SUPPORTED_MIME_TYPES: Final[dict[str, str]] = {
     "image/heic": ".heic",
 }
 
-_OCRMYPDF_PLUGIN_MODULE: Final[str] = "paperless_chandra.ocrmypdf_plugin"
+_OCRMYPDF_PLUGIN_MODULE: Final[str] = "paperless_paddleocr.ocrmypdf_plugin"
 
 
 class _NoTextFoundError(Exception):
@@ -94,29 +90,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _env_choice(name: str, choices: tuple[str, ...], default: str) -> str:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    if raw not in choices:
-        logger.warning(
-            "Invalid value for %s=%r; valid choices are %s. Using default %r.",
-            name,
-            raw,
-            choices,
-            default,
-        )
-        return default
-    return raw
+class PaperlessPaddleOCRParser:
+    """OCR parser using PP-OCRv6 via OCRmyPDF (drop-in for Tesseract)."""
 
-
-class PaperlessChandraParser:
-    """OCR parser using Chandra via ocrmypdf (drop-in for the Tesseract parser)."""
-
-    name: str = "Paperless-ngx Chandra Parser"
+    name: str = "Paperless-ngx PaddleOCR Parser"
     version: str = __version__
     author: str = "Florian Bernd"
-    url: str = "https://github.com/flobernd/paperless-chandra"
+    url: str = "https://github.com/flobernd/paperless-paddleocr"
 
     # ------------------------------------------------------------------
     # Class methods
@@ -135,8 +115,8 @@ class PaperlessChandraParser:
     ) -> int | None:
         if mime_type not in _SUPPORTED_MIME_TYPES:
             return None
-        # Default 15 beats Tesseract's 10 - once installed, Chandra wins.
-        return _env_int("PAPERLESS_CHANDRA_SCORE", default=15)
+        # Default 15 beats Tesseract's 10 once the plugin is installed.
+        return _env_int("PAPERLESS_PADDLEOCR_SCORE", default=15)
 
     # ------------------------------------------------------------------
     # Properties
@@ -157,7 +137,7 @@ class PaperlessChandraParser:
     def __init__(self, logging_group: object | None = None) -> None:
         settings.SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
         self.tempdir = Path(
-            tempfile.mkdtemp(prefix="paperless-chandra-", dir=settings.SCRATCH_DIR),
+            tempfile.mkdtemp(prefix="paperless-paddleocr-", dir=settings.SCRATCH_DIR),
         )
         self.settings = OcrConfig()
         self.archive_path: Path | None = None
@@ -166,20 +146,15 @@ class PaperlessChandraParser:
         self.log = logger
 
         # Plugin-specific env vars, read once per parser instance.
-        self._server_url: str = (os.environ.get("PAPERLESS_CHANDRA_SERVER_URL", "") or "").strip()
-        self._model_name: str = (
-            os.environ.get("PAPERLESS_CHANDRA_MODEL_NAME", "chandra") or ""
-        ).strip() or "chandra"
-        self._api_key: str = (os.environ.get("PAPERLESS_CHANDRA_API_KEY", "") or "").strip()
-        self._max_output_tokens: int = _env_int(
-            "PAPERLESS_CHANDRA_MAX_OUTPUT_TOKENS",
-            default=12384,
-        )
-        self._content_format: str = _env_choice(
-            "PAPERLESS_CHANDRA_CONTENT_FORMAT",
-            choices=("text", "markdown"),
-            default="text",
-        )
+        self._server_url = (os.environ.get("PAPERLESS_PADDLEOCR_SERVER_URL", "") or "").strip()
+        self._endpoint = (os.environ.get("PAPERLESS_PADDLEOCR_ENDPOINT", "/ocr") or "/ocr").strip()
+        self._api_key = (os.environ.get("PAPERLESS_PADDLEOCR_API_KEY", "") or "").strip()
+        self._connect_timeout = _env_int("PAPERLESS_PADDLEOCR_CONNECT_TIMEOUT", 10)
+        self._read_timeout = _env_int("PAPERLESS_PADDLEOCR_READ_TIMEOUT", 300)
+        self._verify_tls = (
+            os.environ.get("PAPERLESS_PADDLEOCR_VERIFY_TLS", "true") or "true"
+        ).strip()
+        self._ca_bundle = (os.environ.get("PAPERLESS_PADDLEOCR_CA_BUNDLE", "") or "").strip()
 
     def __enter__(self) -> Self:
         return self
@@ -355,18 +330,20 @@ class PaperlessChandraParser:
             "language": self.settings.language or "eng",
             "output_type": self.settings.output_type,
             "progress_bar": False,
-            # ─ Chandra engine wiring ────────────────────────────────────
+            # ─ PaddleOCR engine wiring ──────────────────────────────────
             "plugins": [_OCRMYPDF_PLUGIN_MODULE],
             # ocrmypdf 17.x removed the 'hocr' renderer and routes everything
             # through the fpdf2 renderer, which still calls our generate_hocr
             # and renders the invisible text layer itself. No renderer override
             # is required (and 'hocr' would be silently ignored).
             # Custom kwargs registered by our add_options hookimpl.
-            "chandra_server_url": self._server_url,
-            "chandra_model_name": self._model_name,
-            "chandra_api_key": self._api_key,
-            "chandra_max_output_tokens": self._max_output_tokens,
-            "chandra_content_format": self._content_format,
+            "paddleocr_server_url": self._server_url,
+            "paddleocr_endpoint": self._endpoint,
+            "paddleocr_api_key": self._api_key,
+            "paddleocr_connect_timeout": self._connect_timeout,
+            "paddleocr_read_timeout": self._read_timeout,
+            "paddleocr_verify_tls": self._verify_tls,
+            "paddleocr_ca_bundle": self._ca_bundle,
         }
 
         if "pdfa" in ocrmypdf_args["output_type"]:
@@ -631,7 +608,7 @@ class PaperlessChandraParser:
             self.text = text_original
             return
 
-        # --- All other paths: run ocrmypdf with Chandra plugin ---
+        # --- All other paths: run OCRmyPDF with PaddleOCR plugin ---
         archive_path = Path(self.tempdir) / "archive.pdf"
         sidecar_file = Path(self.tempdir) / "sidecar.txt"
 
@@ -646,7 +623,7 @@ class PaperlessChandraParser:
             )
         else:
             self.log.debug(
-                "OCR strategy: full OCR via Chandra - OCR_MODE=%s",
+                "OCR strategy: full OCR via PaddleOCR - OCR_MODE=%s",
                 self.settings.mode,
             )
 
@@ -659,7 +636,7 @@ class PaperlessChandraParser:
         )
 
         try:
-            log_args = {k: ("***" if k == "chandra_api_key" else v) for k, v in args.items()}
+            log_args = {k: ("***" if k == "paddleocr_api_key" else v) for k, v in args.items()}
             self.log.debug("Calling OCRmyPDF with args: %s", log_args)
             ocrmypdf.ocr(**args)
 
@@ -699,7 +676,7 @@ class PaperlessChandraParser:
             )
 
             try:
-                log_args = {k: ("***" if k == "chandra_api_key" else v) for k, v in args.items()}
+                log_args = {k: ("***" if k == "paddleocr_api_key" else v) for k, v in args.items()}
                 self.log.debug(
                     "Fallback: Calling OCRmyPDF with args: %s",
                     log_args,

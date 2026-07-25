@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw
 
-from paperless_chandra.engine.deskew import estimate_skew
+from paperless_paddleocr.engine.deskew import estimate_skew
 
 
 def _bar_page(tmp_path, angle: float):

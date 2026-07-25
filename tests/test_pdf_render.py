@@ -5,8 +5,8 @@ from __future__ import annotations
 import pikepdf
 from PIL import Image
 
-from paperless_chandra.engine.hocr import Block, Line, Page, Word, render_hocr
-from paperless_chandra.engine.pdf import render_textonly
+from paperless_paddleocr.engine.hocr import Block, Line, Page, Word, render_hocr
+from paperless_paddleocr.engine.pdf import render_textonly
 
 
 def test_render_textonly_produces_a_pdf(tmp_path):

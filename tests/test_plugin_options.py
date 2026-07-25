@@ -1,77 +1,67 @@
-"""check_options preflight and engine binding."""
+"""PaddleOCR option validation remains local and does not probe inference."""
 
 from __future__ import annotations
 
-import urllib.error
 from types import SimpleNamespace
 
 import pytest
-from ocrmypdf.exceptions import MissingDependencyError
 
-from paperless_chandra import ocrmypdf_plugin
-from paperless_chandra.engine.engine import ChandraEngine
+from paperless_paddleocr import ocrmypdf_plugin
+from paperless_paddleocr.engine.engine import PaddleOCREngine
 
 
 def _options(**overrides):
-    defaults = {
-        "chandra_server_url": "http://ocr-host:8000",
-        "chandra_model_name": "chandra",
-        "chandra_api_key": "",
-        "chandra_max_output_tokens": 12384,
-        "chandra_content_format": "text",
+    values = {
+        "paddleocr_server_url": "https://ocr.example",
+        "paddleocr_endpoint": "/ocr",
+        "paddleocr_api_key": "secret",
+        "paddleocr_connect_timeout": 10,
+        "paddleocr_read_timeout": 300,
+        "paddleocr_verify_tls": "true",
+        "paddleocr_ca_bundle": "",
     }
-    defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
-@pytest.fixture(autouse=True)
-def _no_network(monkeypatch):
-    original = ocrmypdf_plugin._probe_server
-    stub = lambda url, key: None  # noqa: E731
-    stub.__wrapped__ = original  # type: ignore[attr-defined]
-    monkeypatch.setattr(ocrmypdf_plugin, "_probe_server", stub)
-    ocrmypdf_plugin._PROBED_SERVERS.clear()
+def test_engine_binding_and_valid_defaults():
+    assert isinstance(ocrmypdf_plugin.get_ocr_engine(), PaddleOCREngine)
+    options = _options()
+    ocrmypdf_plugin.check_options(options)
+    assert options.paddleocr_verify_tls is True
 
 
-def test_get_ocr_engine_returns_chandra_engine():
-    assert isinstance(ocrmypdf_plugin.get_ocr_engine(), ChandraEngine)
+@pytest.mark.parametrize(
+    "name,value", [("paddleocr_connect_timeout", 0), ("paddleocr_read_timeout", "bad")]
+)
+def test_timeouts_must_be_positive(name, value):
+    with pytest.raises(ValueError, match="positive"):
+        ocrmypdf_plugin.check_options(_options(**{name: value}))
 
 
-def test_check_options_accepts_valid_configuration():
-    ocrmypdf_plugin.check_options(_options())
+def test_url_endpoint_and_ca_bundle_validation(tmp_path):
+    with pytest.raises(ValueError, match="absolute HTTP"):
+        ocrmypdf_plugin.check_options(_options(paddleocr_server_url="ocr:8080"))
+    with pytest.raises(ValueError, match="path"):
+        ocrmypdf_plugin.check_options(_options(paddleocr_endpoint="https://ocr/ocr"))
+    with pytest.raises(ValueError, match="readable"):
+        ocrmypdf_plugin.check_options(_options(paddleocr_ca_bundle="/no/such/ca.pem"))
+    ca = tmp_path / "ca.pem"
+    ca.write_text("certificate", encoding="utf-8")
+    options = _options(paddleocr_ca_bundle=str(ca))
+    ocrmypdf_plugin.check_options(options)
+    assert options.paddleocr_verify_tls == str(ca)
 
 
-def test_check_options_requires_server_url():
-    with pytest.raises(MissingDependencyError):
-        ocrmypdf_plugin.check_options(_options(chandra_server_url="  "))
-
-
-def test_check_options_rejects_unknown_content_format():
-    with pytest.raises(ValueError):
-        ocrmypdf_plugin.check_options(_options(chandra_content_format="html"))
-
-
-@pytest.mark.parametrize("tokens", [0, -1])
-def test_check_options_rejects_non_positive_max_output_tokens(tokens):
-    with pytest.raises(ValueError):
-        ocrmypdf_plugin.check_options(_options(chandra_max_output_tokens=tokens))
-
-
-def test_probe_maps_auth_failure(monkeypatch):
-    def raise_401(request, timeout):
-        raise urllib.error.HTTPError(request.full_url, 401, "unauthorized", {}, None)
-
-    monkeypatch.setattr(ocrmypdf_plugin, "urlopen", raise_401)
-    ocrmypdf_plugin._PROBED_SERVERS.clear()
-    with pytest.raises(MissingDependencyError, match="rejected the API key"):
-        ocrmypdf_plugin._probe_server.__wrapped__("http://host:1", "bad")  # type: ignore[attr-defined]
-
-
-def test_probe_maps_unreachable_server(monkeypatch):
-    def raise_conn(request, timeout):
-        raise urllib.error.URLError("connection refused")
-
-    monkeypatch.setattr(ocrmypdf_plugin, "urlopen", raise_conn)
-    ocrmypdf_plugin._PROBED_SERVERS.clear()
-    with pytest.raises(MissingDependencyError, match="not reachable"):
-        ocrmypdf_plugin._probe_server.__wrapped__("http://host:1", "")  # type: ignore[attr-defined]
+def test_disabled_tls_warns_and_conflicts_with_ca(tmp_path, caplog):
+    with caplog.at_level("WARNING"):
+        options = _options(paddleocr_verify_tls="false")
+        ocrmypdf_plugin.check_options(options)
+    assert options.paddleocr_verify_tls is False
+    assert "disabled" in caplog.text
+    ca = tmp_path / "ca.pem"
+    ca.write_text("certificate", encoding="utf-8")
+    with pytest.raises(ValueError, match="cannot be combined"):
+        ocrmypdf_plugin.check_options(
+            _options(paddleocr_verify_tls=False, paddleocr_ca_bundle=str(ca))
+        )

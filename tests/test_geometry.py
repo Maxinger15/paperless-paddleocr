@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from paperless_chandra.engine.geometry import estimate_word_boxes
+from paperless_paddleocr.engine.geometry import estimate_word_boxes
 
 
 def test_empty_input_returns_empty():

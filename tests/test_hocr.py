@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from paperless_chandra.engine.hocr import (
+from paperless_paddleocr.engine.hocr import (
     Block,
     Line,
     Page,
@@ -63,10 +63,10 @@ def test_render_hocr_escapes_text():
     assert "&lt;b&gt;&amp;" in render_hocr(_page(line))
 
 
-def test_write_document_sidecar_override(tmp_path):
+def test_write_document_uses_plain_text_sidecar(tmp_path):
     hocr_path, text_path = tmp_path / "p.hocr", tmp_path / "p.txt"
-    write_document(_page(_line()), hocr_path, text_path, sidecar="custom order")
-    assert text_path.read_text(encoding="utf-8") == "custom order"
+    write_document(_page(_line()), hocr_path, text_path)
+    assert text_path.read_text(encoding="utf-8") == "hi"
     assert "ocrx_word" in hocr_path.read_text(encoding="utf-8")
 
 

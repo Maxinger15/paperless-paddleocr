@@ -3,9 +3,9 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "paperless-chandra"
+name = "paperless-paddleocr"
 version = "0.1.0"
-description = "Chandra OCR provider for paperless-ngx"
+description = "PP-OCRv6 PaddleX provider for paperless-ngx"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [
     {name = "Florian Bernd", email = "git@flobernd.de"},
 ]
-keywords = ["paperless", "paperless-ngx", "chandra", "ocr", "ocrmypdf"]
+keywords = ["paperless", "paperless-ngx", "paddleocr", "ocr", "ocrmypdf"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
@@ -29,21 +29,20 @@ classifiers = [
 ]
 dependencies = [
     "ocrmypdf>=17.4",
-    "chandra-ocr>=0.2",
-    "beautifulsoup4>=4.12",
+    "httpx>=0.27",
     "numpy>=1.26",
     "pillow>=10",
 ]
 
 [project.urls]
-Homepage = "https://github.com/flobernd/paperless-chandra"
-Issues = "https://github.com/flobernd/paperless-chandra/issues"
+Homepage = "https://github.com/flobernd/paperless-paddleocr"
+Issues = "https://github.com/flobernd/paperless-paddleocr/issues"
 
 [project.entry-points."paperless_ngx.parsers"]
-chandra = "paperless_chandra.parser:PaperlessChandraParser"
+paddleocr = "paperless_paddleocr.parser:PaperlessPaddleOCRParser"
 
 [tool.setuptools.packages.find]
-include = ["paperless_chandra*"]
+include = ["paperless_paddleocr*"]
 
 [tool.ruff]
 target-version = "py312"
@@ -75,3 +74,4 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
 strict_equality = true
+ignore_missing_imports = true

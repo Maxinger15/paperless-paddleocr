@@ -1,168 +1,185 @@
-"""Client wrapper: URL normalisation, settings application, error mapping."""
+"""PaddleX request encoding, response validation, and retry mapping."""
 
 from __future__ import annotations
 
-import logging
+import base64
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from PIL import Image
 
-from paperless_chandra.engine import client
-from paperless_chandra.engine.client import (
-    ChandraClientError,
-    normalize_server_url,
-    ocr_image,
-)
+from paperless_paddleocr.engine import client
 
 
-def _options(**overrides):
-    defaults = {
-        "chandra_server_url": "http://ocr-host:8000",
-        "chandra_model_name": "chandra",
-        "chandra_api_key": "",
-        "chandra_max_output_tokens": 12384,
+def _config(**overrides):
+    values = {
+        "server_url": "https://ocr.example/service",
+        "endpoint": "/ocr",
+        "api_key": "secret",
+        "connect_timeout": 10,
+        "read_timeout": 300,
+        "verify_tls": True,
     }
-    defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+    values.update(overrides)
+    return client.PaddleOCRConfig(**values)
 
 
-def _image():
-    return Image.new("RGB", (100, 100), "white")
+def _payload(**overrides):
+    result = {
+        "errorCode": 0,
+        "result": {
+            "ocrResults": [
+                {
+                    "prunedResult": {
+                        "rec_texts": ["Grüße Köln"],
+                        "rec_scores": [0.876],
+                        "rec_boxes": [[-3, 4, 99, 50]],
+                    }
+                }
+            ]
+        },
+    }
+    result.update(overrides)
+    return result
 
 
-class _Result:
-    def __init__(self, raw="<div></div>", error=False, token_count=7):
-        self.raw = raw
-        self.error = error
-        self.token_count = token_count
+class _HTTP:
+    def __init__(self, responses, **kwargs):
+        self.responses = iter(responses)
+        self.kwargs = kwargs
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        value = next(self.responses)
+        if isinstance(value, Exception):
+            raise value
+        return value
 
 
-@pytest.fixture(autouse=True)
-def _reset_think_warned():
-    client._think_warned = False
-    yield
-    client._think_warned = False
+def _response(status=200, payload=None, headers=None):
+    return httpx.Response(status, json=_payload() if payload is None else payload, headers=headers)
 
 
-def test_normalize_appends_v1():
-    assert normalize_server_url("http://host:8000") == "http://host:8000/v1"
-
-
-def test_normalize_keeps_existing_version_suffix():
-    assert normalize_server_url("http://host:8000/v1/") == "http://host:8000/v1"
-
-
-def test_normalize_rejects_empty():
-    with pytest.raises(ChandraClientError):
-        normalize_server_url("   ")
-
-
-def test_ocr_image_sends_layout_prompt_and_returns_raw(monkeypatch):
+def _install_http(monkeypatch, responses):
     captured = {}
 
-    def fake_generate(batch, max_output_tokens=None, vllm_api_base=None, **kwargs):
-        captured["batch"] = batch
-        captured["max_output_tokens"] = max_output_tokens
-        captured["vllm_api_base"] = vllm_api_base
-        return [_Result(raw="<div>ok</div>")]
+    def factory(**kwargs):
+        http = _HTTP(responses, **kwargs)
+        captured["http"] = http
+        return http
 
-    monkeypatch.setattr(client, "generate_vllm", fake_generate)
-    raw = ocr_image(_image(), _options())
-    assert raw == "<div>ok</div>"
-    assert captured["batch"][0].prompt_type == "ocr_layout"
-    assert captured["max_output_tokens"] == 12384
-    assert captured["vllm_api_base"] == "http://ocr-host:8000/v1"
+    monkeypatch.setattr(client.httpx, "Client", factory)
+    return captured
 
 
-def test_ocr_image_applies_model_and_key_to_chandra_settings(monkeypatch):
-    from chandra.settings import settings as chandra_settings
-
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result()])
-    ocr_image(_image(), _options(chandra_model_name="custom", chandra_api_key="sekrit"))
-    assert chandra_settings.VLLM_MODEL_NAME == "custom"
-    assert chandra_settings.VLLM_API_KEY == "sekrit"
-
-
-def test_ocr_image_defaults_api_key_to_vllm_convention(monkeypatch):
-    from chandra.settings import settings as chandra_settings
-
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result()])
-    ocr_image(_image(), _options(chandra_api_key=""))
-    assert chandra_settings.VLLM_API_KEY == "EMPTY"
+def test_url_validation_and_joining():
+    assert client.join_url("https://host/base/", "ocr") == "https://host/base/ocr"
+    with pytest.raises(client.PaddleOCRClientError, match="HTTP"):
+        client.normalize_server_url("host/ocr")
+    with pytest.raises(client.PaddleOCRClientError, match="path"):
+        client.normalize_endpoint("https://host/ocr")
 
 
-def test_ocr_image_raises_on_error_flag(monkeypatch):
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result(error=True)])
-    with pytest.raises(ChandraClientError):
-        ocr_image(_image(), _options())
+def test_request_is_lossless_png_base64_with_auth_and_options(monkeypatch):
+    captured = _install_http(monkeypatch, [_response()])
+    lines = client.ocr_image(Image.new("RGB", (8, 6), "white"), _config())
+    http = captured["http"]
+    url, request = http.calls[0]
+    assert url == "https://ocr.example/service/ocr"
+    assert request["headers"]["Authorization"] == "Bearer secret"
+    assert request["json"] | {"file": "present"} == {
+        "file": "present",
+        "fileType": 1,
+        "visualize": False,
+        "useDocOrientationClassify": False,
+        "useDocUnwarping": False,
+        "useTextlineOrientation": False,
+    }
+    assert base64.b64decode(request["json"]["file"]).startswith(b"\x89PNG")
+    assert lines[0].text == "Grüße Köln"
+    assert http.kwargs["verify"] is True
 
 
-def test_ocr_image_raises_on_empty_result_list(monkeypatch):
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [])
-    with pytest.raises(ChandraClientError):
-        ocr_image(_image(), _options())
+@pytest.mark.parametrize("verify", [False, "/tmp/custom-ca.pem"])
+def test_tls_configuration_is_forwarded(monkeypatch, verify):
+    captured = _install_http(monkeypatch, [_response()])
+    client.ocr_image(Image.new("RGB", (2, 2)), _config(verify_tls=verify))
+    assert captured["http"].kwargs["verify"] == verify
 
 
-def test_ocr_image_returns_empty_string_for_empty_raw(monkeypatch):
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result(raw="")])
-    assert ocr_image(_image(), _options()) == ""
+def test_timeout_values_are_forwarded(monkeypatch):
+    captured = _install_http(monkeypatch, [_response()])
+    client.ocr_image(Image.new("RGB", (2, 2)), _config(connect_timeout=7, read_timeout=42))
+    timeout = captured["http"].kwargs["timeout"]
+    assert timeout.connect == 7
+    assert timeout.read == 42
 
 
-def _warning_records(caplog):
-    return [r for r in caplog.records if r.levelno >= logging.WARNING]
+@pytest.mark.parametrize("status", [429, 502, 503, 504])
+def test_retryable_statuses_are_retried_at_most_twice(monkeypatch, status):
+    captured = _install_http(monkeypatch, [_response(status), _response(status), _response()])
+    pauses = []
+    monkeypatch.setattr(client.time, "sleep", pauses.append)
+    client.ocr_image(Image.new("RGB", (2, 2)), _config())
+    assert len(captured["http"].calls) == 3
+    assert pauses == [0.5, 1.0]
 
 
-def test_unclosed_think_block_warns_with_enable_thinking_hint(monkeypatch, caplog):
-    raw = "<think>\nThe image shows an invoice.\n<div data-label='Text'>hi</div>"
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result(raw=raw)])
-    with caplog.at_level(logging.WARNING):
-        assert ocr_image(_image(), _options()) == raw
-    warnings = _warning_records(caplog)
-    assert len(warnings) == 1
-    assert "enable_thinking" in warnings[0].getMessage()
+def test_retry_after_is_honoured_when_bounded(monkeypatch):
+    _install_http(monkeypatch, [_response(429, headers={"Retry-After": "3"}), _response()])
+    pauses = []
+    monkeypatch.setattr(client.time, "sleep", pauses.append)
+    client.ocr_image(Image.new("RGB", (2, 2)), _config())
+    assert pauses == [3]
 
 
-def test_empty_content_with_generated_tokens_warns(monkeypatch, caplog):
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result(raw="", token_count=534)])
-    with caplog.at_level(logging.WARNING):
-        assert ocr_image(_image(), _options()) == ""
-    warnings = _warning_records(caplog)
-    assert len(warnings) == 1
-    assert "enable_thinking" in warnings[0].getMessage()
+@pytest.mark.parametrize(
+    "status,match",
+    [(400, "HTTP 400"), (401, "authentication"), (403, "authentication"), (500, "HTTP 500")],
+)
+def test_nonretryable_statuses_are_actionable(monkeypatch, status, match):
+    _install_http(monkeypatch, [_response(status)])
+    with pytest.raises(client.PaddleOCRClientError, match=match):
+        client.ocr_image(Image.new("RGB", (2, 2)), _config())
 
 
-def test_empty_content_without_generated_tokens_is_silent(monkeypatch, caplog):
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result(raw="", token_count=0)])
-    with caplog.at_level(logging.WARNING):
-        ocr_image(_image(), _options())
-    assert not _warning_records(caplog)
+def test_transport_errors_are_actionable(monkeypatch):
+    _install_http(monkeypatch, [httpx.ConnectError("no route")])
+    with pytest.raises(client.PaddleOCRClientError, match="connect"):
+        client.ocr_image(Image.new("RGB", (2, 2)), _config())
+    _install_http(monkeypatch, [httpx.ReadTimeout("slow")])
+    with pytest.raises(client.PaddleOCRClientError, match="timed out"):
+        client.ocr_image(Image.new("RGB", (2, 2)), _config())
 
 
-def test_closed_think_block_is_silent(monkeypatch, caplog):
-    raw = "<think>\nplan\n</think>\n<div data-label='Text'>hi</div>"
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result(raw=raw)])
-    with caplog.at_level(logging.WARNING):
-        assert ocr_image(_image(), _options()) == raw
-    assert not _warning_records(caplog)
-
-
-def test_normal_output_is_silent(monkeypatch, caplog):
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: [_Result(raw="<div>ok</div>")])
-    with caplog.at_level(logging.WARNING):
-        ocr_image(_image(), _options())
-    assert not _warning_records(caplog)
-
-
-def test_think_warning_fires_once_across_both_kinds(monkeypatch, caplog):
-    results = iter(
-        [
-            [_Result(raw="<think>\n<div>hi</div>")],
-            [_Result(raw="", token_count=99)],
-        ]
+def test_invalid_json_is_mapped_without_response_body(monkeypatch):
+    response = SimpleNamespace(
+        status_code=200, json=lambda: (_ for _ in ()).throw(ValueError("not json"))
     )
-    monkeypatch.setattr(client, "generate_vllm", lambda *a, **k: next(results))
-    with caplog.at_level(logging.WARNING):
-        ocr_image(_image(), _options())
-        ocr_image(_image(), _options())
-    assert len(_warning_records(caplog)) == 1
+    _install_http(monkeypatch, [response])
+    with pytest.raises(client.PaddleOCRClientError, match="invalid JSON"):
+        client.ocr_image(Image.new("RGB", (2, 2)), _config())
+
+
+def test_empty_response_and_schema_errors():
+    payload = _payload()
+    payload["result"]["ocrResults"][0]["prunedResult"] = {
+        "rec_texts": [],
+        "rec_scores": [],
+        "rec_boxes": [],
+    }
+    assert client.parse_response(payload) == []
+    payload = _payload()
+    payload["result"]["ocrResults"][0]["prunedResult"]["rec_scores"] = []
+    with pytest.raises(client.PaddleOCRClientError, match="different lengths"):
+        client.parse_response(payload)
+    with pytest.raises(client.PaddleOCRClientError, match="errorCode 7"):
+        client.parse_response(_payload(errorCode=7))
