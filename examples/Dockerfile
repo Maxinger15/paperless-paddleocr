@@ -9,7 +9,9 @@
 #     -f examples/Dockerfile \
 #     -t paperless-paddleocr:0.1.0 .
 
-ARG PAPERLESS_TAG=3.0.2
+# Published images build this against the current upstream release. Override
+# this argument locally to pin a Paperless version for a reproducible build.
+ARG PAPERLESS_TAG=latest
 
 # --- Stage 1: build the plugin wheel from source --------------------------
 FROM python:3.12-slim AS plugin

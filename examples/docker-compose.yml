@@ -1,14 +1,9 @@
-# Complete paperless-ngx 3.0.2 + PP-OCRv6 CPU stack.
+# Complete published paperless-ngx + PP-OCRv6 CPU stack.
 # Run from this directory after setting PAPERLESS_DB_USER and
 # PAPERLESS_DB_PASSWORD in .env (or exporting them in the shell).
 services:
   paperless:
-    build:
-      context: ..
-      dockerfile: examples/Dockerfile
-      args:
-        PAPERLESS_TAG: ${PAPERLESS_TAG:-3.0.2}
-    image: paperless-paddleocr:local
+    image: ${PAPERLESS_IMAGE:-ghcr.io/maxinger15/paperless-paddleocr:latest}
     restart: unless-stopped
     depends_on:
       paperless-db:
@@ -34,10 +29,7 @@ services:
       PAPERLESS_PADDLEOCR_SERVER_URL: http://paddleocr-server:8080
 
   paddleocr-server:
-    build:
-      context: ..
-      dockerfile: docker/paddleocr.Dockerfile
-    image: paperless-paddleocr-server:local
+    image: ${PADDLEOCR_SERVER_IMAGE:-ghcr.io/maxinger15/paperless-paddleocr-server:latest}
     restart: unless-stopped
     expose:
       - "8080"

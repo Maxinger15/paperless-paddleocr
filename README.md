@@ -28,7 +28,7 @@ not depend on those defaults because it explicitly sets `visualize: false` and s
 
 ## Requirements
 
-- paperless-ngx 3.0 or later; `3.0.2` is the documented and CI-smoked baseline.
+- paperless-ngx 3.0 or later; `3.0.2` is the CI-smoked compatibility baseline.
 - A PP-OCRv6 PaddleX Basic Serving `/ocr` endpoint. The supplied service uses CPU only and pins
   `python:3.10.20-slim-bookworm`, `paddlepaddle==3.2.1`, `paddlex[ocr-core]==3.7.2`, and
   `paddleocr==3.7.0`.
@@ -49,11 +49,12 @@ PAPERLESS_DB_USER=paperless
 PAPERLESS_DB_PASSWORD=change-this-to-a-long-secret
 ```
 
-Then start the complete stack:
+Then pull and start the complete stack:
 
 ```bash
 cd examples
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 [`examples/docker-compose.yml`](examples/docker-compose.yml) creates distinct Paperless,
@@ -61,14 +62,47 @@ docker compose up -d --build
 files between restarts. The sidecar's healthcheck proves only that TCP port 8080 is listening;
 model download/loading can continue after it turns healthy, so the first request can take longer.
 
-The custom Paperless image may also be built directly:
+### Published images and tags
+
+The example pulls multi-platform Linux images for `amd64` and `arm64` by default:
+
+- `ghcr.io/maxinger15/paperless-paddleocr:latest` — paperless-ngx with this plugin installed.
+  It intentionally contains no Paddle, PaddleX, model files, or accelerator runtime.
+- `ghcr.io/maxinger15/paperless-paddleocr-server:latest` — the separate CPU-only PP-OCRv6
+  PaddleX service.
+
+`latest` is rebuilt from the default branch, and the Paperless image is also rebuilt daily at
+05:37 UTC against `ghcr.io/paperless-ngx/paperless-ngx:latest`. Scheduled Paperless builds also
+receive a `daily-YYYY-MM-DD` tag. Default-branch and manual builds receive a `sha-*` tag; version
+tags do not publish images automatically. The server is published for default-branch pushes and
+manual runs from the default branch, but is not rebuilt by the daily schedule. Both images publish
+one manifest for `linux/amd64` and `linux/arm64`, so Compose selects the native image for the host.
+
+The daily channel deliberately follows the mutable official Paperless `latest` image. For a
+controlled deployment, select a reviewed `daily-YYYY-MM-DD` tag or pin the resulting GHCR digest
+instead of following `latest`.
+
+GitHub Container Registry may create a package as private on its first publish. In GitHub, open
+the repository's **Packages** section, select each package, then use **Package settings** to change
+its visibility to **Public** before expecting unauthenticated pulls to work.
+
+### Local source builds
+
+To build from this checkout instead of pulling the published images:
 
 ```bash
-docker build -f examples/Dockerfile -t paperless-paddleocr:local .
+docker build -f examples/Dockerfile \
+  --build-arg PAPERLESS_TAG=3.0.2 \
+  -t paperless-paddleocr:local .
+docker build -f docker/paddleocr.Dockerfile -t paperless-paddleocr-server:local .
+cd examples
+PAPERLESS_IMAGE=paperless-paddleocr:local \
+PADDLEOCR_SERVER_IMAGE=paperless-paddleocr-server:local \
+docker compose up -d
 ```
 
-The default base is `ghcr.io/paperless-ngx/paperless-ngx:3.0.2`; set `--build-arg PAPERLESS_TAG=3.0.2`
-explicitly when scripting a reproducible deployment.
+The Dockerfile defaults to `PAPERLESS_TAG=latest`, matching daily publication. Set a specific
+`--build-arg PAPERLESS_TAG=…` when scripting a reproducible deployment.
 
 ## Installation alternatives
 
