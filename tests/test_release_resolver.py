@@ -138,7 +138,9 @@ def test_rejects_empty_or_unsafe_oci_tags(github_tag: str) -> None:
         official_container_tag(github_tag)
 
 
-def test_cli_outputs_deterministic_json_and_line_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_outputs_deterministic_json_and_line_format(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     fixture = tmp_path / "releases.json"
     fixture.write_text(
         '[{"draft": false, "tag_name": "v2.20.3", "published_at": "2026-07-25T11:00:00Z"}]',

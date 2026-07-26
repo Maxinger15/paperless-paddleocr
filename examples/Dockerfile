@@ -9,9 +9,9 @@
 #     -f examples/Dockerfile \
 #     -t paperless-paddleocr:0.1.0 .
 
-# Published images build this against the current upstream release. Override
-# this argument locally to pin a Paperless version for a reproducible build.
-ARG PAPERLESS_TAG=latest
+# Published images pass a version-and-digest pinned Paperless reference.
+# Override this locally to select another official Paperless image.
+ARG PAPERLESS_IMAGE=ghcr.io/paperless-ngx/paperless-ngx:3.0.3
 
 # --- Stage 1: build the plugin wheel from source --------------------------
 FROM python:3.12-slim AS plugin
@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir build \
  && python -m build --wheel --outdir /dist
 
 # --- Stage 2: layer the plugin onto paperless-ngx -------------------------
-FROM ghcr.io/paperless-ngx/paperless-ngx:${PAPERLESS_TAG}
+FROM ${PAPERLESS_IMAGE}
 
 COPY --from=plugin /dist/*.whl /tmp/plugin/
 RUN pip install --no-cache-dir /tmp/plugin/*.whl \

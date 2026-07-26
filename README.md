@@ -15,11 +15,15 @@ This project began as a fork of [flobernd/paperless-chandra](https://github.com/
 Its source code remains MIT licensed; see [License](#license-and-attribution).
 
 > [!IMPORTANT]
-> ## AI-assisted project
-> 
-> Hi, human here. I designed the architecture and used AI to implement this project. While I actively use it in my own homelab, I cannot provide any warranties or guarantees.
 >
-> This software has not undergone a security audit and is **not intended for direct exposure to public networks**. Use it at your own risk, especially in security-sensitive or internet-facing environments.
+> ## AI-assisted project
+>
+> Hi, human here. I designed the architecture and used AI to implement this project. While I
+> actively use it in my own homelab, I cannot provide any warranties or guarantees.
+>
+> This software has not undergone a security audit and is **not intended for direct exposure to
+> public networks**. Use it at your own risk, especially in security-sensitive or internet-facing
+> environments.
 
 ## Architecture
 
@@ -78,16 +82,23 @@ The example pulls multi-platform Linux images for `amd64` and `arm64` by default
 - `ghcr.io/maxinger15/paperless-paddleocr-server:latest` — the separate CPU-only PP-OCRv6
   PaddleX service.
 
-`latest` is rebuilt from the default branch, and the Paperless image is also rebuilt daily at
-05:37 UTC against `ghcr.io/paperless-ngx/paperless-ngx:latest`. Scheduled Paperless builds also
-receive a `daily-YYYY-MM-DD` tag. Default-branch and manual builds receive a `sha-*` tag; version
-tags do not publish images automatically. The server is published for default-branch pushes and
-manual runs from the default branch, but is not rebuilt by the daily schedule. Both images publish
-one manifest for `linux/amd64` and `linux/arm64`, so Compose selects the native image for the host.
+An hourly release check follows the newest non-draft paperless-ngx GitHub Release, including
+pre-releases. The GitHub tag's leading `v` is removed to match the official Paperless container
+tag: release `v3.0.3` produces `ghcr.io/maxinger15/paperless-paddleocr:3.0.3`.
 
-The daily channel deliberately follows the mutable official Paperless `latest` image. For a
-controlled deployment, select a reviewed `daily-YYYY-MM-DD` tag or pin the resulting GHCR digest
-instead of following `latest`.
+Before publication, the workflow resolves and pins the exact upstream Paperless manifest digest.
+It builds one immutable multi-platform candidate, smoke-tests that exact candidate on `amd64` and
+`arm64`, then runs the deterministic Paperless-to-PaddleX E2E against the same digest. Only a
+completely successful run promotes that manifest to the exact Paperless version tag and updates
+`latest`. Because pre-releases are included, `latest` may point to a Paperless pre-release. A
+scheduled check does nothing when that version tag already exists.
+
+Changes to this plugin rebuild the newest Paperless version and intentionally replace that version
+tag with the updated plugin while keeping the Paperless base version and digest pinned. The
+immutable `build-<paperless-version>-<git-sha>-<run-id>-<attempt>` candidate tag remains available
+for auditing and digest-pinned deployments. The PaddleOCR service has its own publication lifecycle
+and is not rebuilt merely because Paperless released a new version. Both images publish one
+manifest for `linux/amd64` and `linux/arm64`, so Compose selects the native image for the host.
 
 GitHub Container Registry may create a package as private on its first publish. In GitHub, open
 the repository's **Packages** section, select each package, then use **Package settings** to change
@@ -99,7 +110,7 @@ To build from this checkout instead of pulling the published images:
 
 ```bash
 docker build -f examples/Dockerfile \
-  --build-arg PAPERLESS_TAG=3.0.2 \
+  --build-arg PAPERLESS_IMAGE=ghcr.io/paperless-ngx/paperless-ngx:3.0.3 \
   -t paperless-paddleocr:local .
 docker build -f docker/paddleocr.Dockerfile -t paperless-paddleocr-server:local .
 cd examples
@@ -108,8 +119,9 @@ PADDLEOCR_SERVER_IMAGE=paperless-paddleocr-server:local \
 docker compose up -d
 ```
 
-The Dockerfile defaults to `PAPERLESS_TAG=latest`, matching daily publication. Set a specific
-`--build-arg PAPERLESS_TAG=…` when scripting a reproducible deployment.
+The Dockerfile accepts a complete `PAPERLESS_IMAGE` reference. For reproducible deployments, use a
+version-and-digest reference such as
+`ghcr.io/paperless-ngx/paperless-ngx:3.0.3@sha256:…`.
 
 ## Installation alternatives
 
@@ -166,9 +178,11 @@ on an untrusted network.** Prefer a trusted or mounted private CA bundle.
 
 ## Updating
 
-Rebuild the Paperless image after selecting a newer plugin release/source, then recreate the
-container. The PaddleX service can be updated independently after reviewing PaddleX and PaddleOCR
-release notes. Keep the model-cache volume when recreating it to avoid unnecessary model downloads.
+Versioned Paperless plugin images are created after a new stable or pre-release passes the
+compatibility gates. Plugin changes rebuild the newest Paperless version. Recreate the Paperless
+container after selecting the desired version tag or `latest`. The PaddleX service can be updated
+independently after reviewing PaddleX and PaddleOCR release notes. Keep the model-cache volume when
+recreating it to avoid unnecessary model downloads.
 
 ## Verification and operations
 

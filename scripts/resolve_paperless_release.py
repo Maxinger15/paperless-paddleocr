@@ -19,7 +19,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-
 OCI_TAG_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 
 
@@ -74,7 +73,9 @@ def release_timestamp(release: dict[str, object]) -> datetime:
             f"GitHub release {field_name} must be an ISO 8601 timestamp."
         ) from error
     if parsed.tzinfo is None:
-        raise ReleaseResolutionError(f"GitHub release {field_name} timestamp must include a timezone.")
+        raise ReleaseResolutionError(
+            f"GitHub release {field_name} timestamp must include a timezone."
+        )
     return parsed
 
 
@@ -96,7 +97,9 @@ def resolve_releases(releases: object) -> ResolvedRelease:
 
         tag_name = release.get("tag_name")
         if not isinstance(tag_name, str):
-            raise ReleaseResolutionError("Every non-draft GitHub release must contain a string tag_name.")
+            raise ReleaseResolutionError(
+                "Every non-draft GitHub release must contain a string tag_name."
+            )
         candidates.append(
             (
                 release_timestamp(release),

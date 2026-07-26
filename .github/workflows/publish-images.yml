@@ -5,24 +5,130 @@ on:
   push:
     branches: [master]
   schedule:
-    - cron: "37 5 * * *"
+    - cron: "37 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
-  group: publish-images-${{ github.workflow }}-${{ github.ref }}
+  group: publish-images-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PAPERLESS_UPSTREAM_IMAGE: ghcr.io/paperless-ngx/paperless-ngx
+  PAPERLESS_IMAGE: ghcr.io/maxinger15/paperless-paddleocr
+
 jobs:
-  paperless:
-    name: Publish Paperless image
+  discover-paperless:
+    name: Discover Paperless release
     if: >-
       github.event_name == 'schedule' ||
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      paperless_tag: ${{ steps.release.outputs.paperless_tag }}
+      paperless_digest: ${{ steps.release.outputs.paperless_digest }}
+      paperless_ref: ${{ steps.release.outputs.paperless_ref }}
+      should_build: ${{ steps.release.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: release
+        name: Resolve release and registry state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          gh api --paginate --slurp \
+            "repos/paperless-ngx/paperless-ngx/releases?per_page=100" \
+            > release-pages.json
+          jq -e 'add' release-pages.json > releases.json
+          paperless_tag=$(python3 scripts/resolve_paperless_release.py \
+            --input releases.json --format line)
+
+          inspect_image() {
+            local image=$1
+            local output_file=$2
+            if docker buildx imagetools inspect "$image" >"$output_file" 2>&1; then
+              return 0
+            fi
+            if grep -Eqi 'manifest unknown|no such manifest' "$output_file" ||
+              grep -Fqx "ERROR: ${image}: not found" "$output_file"; then
+              return 2
+            fi
+            cat "$output_file" >&2
+            return 1
+          }
+
+          upstream_ref="${PAPERLESS_UPSTREAM_IMAGE}:${paperless_tag}"
+          if inspect_image "$upstream_ref" upstream-inspect.txt; then
+            :
+          else
+            inspect_status=$?
+            if [ "$inspect_status" -eq 2 ]; then
+              echo "::notice::Paperless release ${paperless_tag} exists, but ${upstream_ref} is not published yet."
+              {
+                echo "paperless_tag=${paperless_tag}"
+                echo "paperless_digest="
+                echo "paperless_ref="
+                echo "should_build=false"
+              } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            exit "$inspect_status"
+          fi
+
+          paperless_digest=$(awk '$1 == "Digest:" { print $2; exit }' upstream-inspect.txt)
+          if ! [[ "$paperless_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            cat upstream-inspect.txt >&2
+            echo "Could not resolve a canonical Paperless manifest digest." >&2
+            exit 1
+          fi
+          paperless_ref="${upstream_ref}@${paperless_digest}"
+
+          should_build=true
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            downstream_ref="${PAPERLESS_IMAGE}:${paperless_tag}"
+            if inspect_image "$downstream_ref" downstream-inspect.txt; then
+              should_build=false
+              echo "::notice::${downstream_ref} already exists; no release build is needed."
+            else
+              inspect_status=$?
+              if [ "$inspect_status" -ne 2 ]; then
+                exit "$inspect_status"
+              fi
+            fi
+          fi
+
+          {
+            echo "paperless_tag=${paperless_tag}"
+            echo "paperless_digest=${paperless_digest}"
+            echo "paperless_ref=${paperless_ref}"
+            echo "should_build=${should_build}"
+          } >> "$GITHUB_OUTPUT"
+
+  build-paperless-candidate:
+    name: Build immutable Paperless candidate
+    needs: discover-paperless
+    if: needs.discover-paperless.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      candidate_ref: ${{ steps.candidate.outputs.candidate_ref }}
+      candidate_digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -32,39 +138,160 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
-        with:
-          images: ghcr.io/maxinger15/paperless-paddleocr
-          flavor: latest=false
-          tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'schedule' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-            type=schedule,pattern=daily-{{date 'YYYY-MM-DD'}}
-            type=sha,prefix=sha-,format=short,enable=${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.title=paperless-paddleocr
-            org.opencontainers.image.description=paperless-ngx with the paperless-paddleocr plugin
-      - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+      - id: candidate
+        name: Define immutable candidate tag
+        env:
+          PAPERLESS_TAG: ${{ needs.discover-paperless.outputs.paperless_tag }}
+        run: |
+          candidate_ref="${PAPERLESS_IMAGE}:build-${PAPERLESS_TAG}-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "candidate_ref=${candidate_ref}" >> "$GITHUB_OUTPUT"
+      - id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
           file: examples/Dockerfile
-          build-args: PAPERLESS_TAG=latest
+          build-args: PAPERLESS_IMAGE=${{ needs.discover-paperless.outputs.paperless_ref }}
           platforms: linux/amd64,linux/arm64
           pull: true
           push: true
           provenance: mode=max
           sbom: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.candidate.outputs.candidate_ref }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=paperless-paddleocr
+            org.opencontainers.image.description=paperless-ngx with the paperless-paddleocr plugin
+            org.opencontainers.image.version=${{ needs.discover-paperless.outputs.paperless_tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.paperless-paddleocr.paperless.ref=${{ needs.discover-paperless.outputs.paperless_ref }}
+            io.paperless-paddleocr.paperless.digest=${{ needs.discover-paperless.outputs.paperless_digest }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  paperless-platform-smoke:
+    name: Paperless ${{ matrix.platform }} parser smoke
+    needs:
+      - discover-paperless
+      - build-paperless-candidate
+    if: >-
+      needs.discover-paperless.outputs.should_build == 'true' &&
+      needs.build-paperless-candidate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            slug: amd64
+          - platform: linux/arm64
+            slug: arm64
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify plugin and parser discovery
+        env:
+          CANDIDATE_IMAGE: ${{ needs.build-paperless-candidate.outputs.candidate_ref }}@${{ needs.build-paperless-candidate.outputs.candidate_digest }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          docker run --rm --platform "$PLATFORM" \
+            --entrypoint /bin/bash \
+            --volume "$PWD/tests:/tests:ro" \
+            --env PYTHONPATH=/usr/src/paperless/src \
+            --env DJANGO_SETTINGS_MODULE=paperless.settings \
+            --env PAPERLESS_REDIS=redis://localhost:6379 \
+            --env PAPERLESS_DBENGINE=sqlite \
+            --env PAPERLESS_SECRET_KEY=smoke-test-not-a-real-secret \
+            "$CANDIDATE_IMAGE" -ec '
+              if [ -x /usr/src/paperless/.venv/bin/python ]; then
+                python_bin=/usr/src/paperless/.venv/bin/python
+              else
+                python_bin=$(command -v python3)
+              fi
+              "$python_bin" /tests/smoke_paperless.py
+            '
+
+  paperless-e2e:
+    name: Paperless release E2E
+    needs:
+      - discover-paperless
+      - build-paperless-candidate
+    if: >-
+      needs.discover-paperless.outputs.should_build == 'true' &&
+      needs.build-paperless-candidate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install E2E assertion dependencies
+        run: python -m pip install pillow pypdf
+      - name: Run deterministic PaddleX stub E2E
+        env:
+          PAPERLESS_E2E_IMAGE: ${{ needs.build-paperless-candidate.outputs.candidate_ref }}@${{ needs.build-paperless-candidate.outputs.candidate_digest }}
+          PAPERLESS_E2E_SKIP_BUILD: "true"
+          PYTHON_BIN: python
+        run: tests/e2e/run-stub.sh
+
+  publish-paperless:
+    name: Publish Paperless release image
+    needs:
+      - discover-paperless
+      - build-paperless-candidate
+      - paperless-platform-smoke
+      - paperless-e2e
+    if: >-
+      always() &&
+      needs.discover-paperless.outputs.should_build == 'true' &&
+      needs.build-paperless-candidate.result == 'success' &&
+      needs.paperless-platform-smoke.result == 'success' &&
+      needs.paperless-e2e.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote the tested manifest
+        env:
+          CANDIDATE_IMAGE: ${{ needs.build-paperless-candidate.outputs.candidate_ref }}@${{ needs.build-paperless-candidate.outputs.candidate_digest }}
+          PAPERLESS_TAG: ${{ needs.discover-paperless.outputs.paperless_tag }}
+        run: |
+          docker buildx imagetools create \
+            --tag "${PAPERLESS_IMAGE}:${PAPERLESS_TAG}" \
+            --tag "${PAPERLESS_IMAGE}:latest" \
+            "$CANDIDATE_IMAGE"
+
   paddleocr-server:
     name: Publish PP-OCRv6 service image
     if: >-
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -80,7 +307,7 @@ jobs:
           images: ghcr.io/maxinger15/paperless-paddleocr-server
           flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=raw,value=latest
             type=sha,prefix=sha-,format=short
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}

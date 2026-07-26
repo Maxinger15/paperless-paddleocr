@@ -35,13 +35,13 @@ different version or digest.
 
 Before publication it performs:
 
-1. plugin installation and parser-discovery smoke testing inside the exact
-   upstream Paperless image;
-2. a candidate image build using `PAPERLESS_TAG=<version>`;
-3. the deterministic Paperless-to-PaddleX-stub E2E against that candidate,
+1. one immutable multi-platform candidate build from the exact upstream
+   Paperless digest;
+2. plugin installation and parser-discovery smoke testing against that exact
+   candidate digest on AMD64 and ARM64;
+3. the deterministic Paperless-to-PaddleX-stub E2E against the same digest,
    covering parser discovery, OCRmyPDF, hOCR, searchable PDF/A, stored content,
-   and rotation;
-4. an ARM64 candidate build and import/parser smoke under QEMU.
+   and rotation.
 
 Any failed test blocks publication. The separate real PP-OCRv6 service smoke
 remains independent because a Paperless release does not change the pinned
@@ -49,8 +49,7 @@ PaddleX service runtime.
 
 ## Publication
 
-After all compatibility jobs pass, Buildx publishes one multi-platform manifest
-for:
+Buildx first publishes the uniquely tagged candidate manifest for:
 
 - `linux/amd64`
 - `linux/arm64`
@@ -59,13 +58,17 @@ The immutable build input is
 `ghcr.io/paperless-ngx/paperless-ngx:<version>@sha256:<digest>`. Published tags
 are:
 
+- `build-<version>-<git-sha>-<run-id>-<attempt>`, the immutable tested
+  candidate retained for auditing;
 - `<version>`, matching the official Paperless container tag;
 - `latest`, updated only after the versioned build passes.
 
 Plugin changes intentionally replace `<version>` with a new image containing
 the updated plugin but the same pinned Paperless base. OCI labels record the
 plugin commit and upstream Paperless version. SBOM and provenance attestations
-remain enabled.
+remain enabled. After every compatibility job passes, the workflow promotes
+the already-tested candidate manifest to `<version>` and `latest` without
+rebuilding it.
 
 The PaddleOCR service image keeps its independent publication policy and is not
 rebuilt by Paperless release polling.
