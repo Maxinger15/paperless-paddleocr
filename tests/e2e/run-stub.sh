@@ -13,6 +13,9 @@ cleanup() { docker compose -f docker-compose.stub.yml down -v; }
 trap cleanup EXIT
 
 rm -rf consume && mkdir -p consume
+"$PY" make_test_page.py consume/e2e-test.png
+"$PY" make_test_page.py consume/e2e-rotated.png 180
+
 if [ "$SKIP_BUILD" != "true" ]; then
   docker build \
     --file "$REPO_ROOT/docker/e2e.Dockerfile" \
@@ -24,8 +27,6 @@ PAPERLESS_E2E_IMAGE="$E2E_IMAGE" \
   PAPERLESS_BASE_IMAGE="$PAPERLESS_BASE_IMAGE" \
   docker compose -f docker-compose.stub.yml up -d --no-build
 
-"$PY" make_test_page.py consume/e2e-test.png
-"$PY" make_test_page.py consume/e2e-rotated.png 180
 "$PY" assert_e2e.py \
   --expect "PAPERLESS PADDLEOCR STUB OK" --expect "Stub Rechnung 2026-0042" \
   --expect-docs 2 --assert-upright e2e-rotated --timeout 600
