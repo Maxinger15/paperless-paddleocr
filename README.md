@@ -14,6 +14,13 @@ CPU-only PaddleX service recognises one rasterised page at a time over HTTP.
 This project began as a fork of [flobernd/paperless-chandra](https://github.com/flobernd/paperless-chandra).
 Its source code remains MIT licensed; see [License](#license-and-attribution).
 
+> [!IMPORTANT]
+> ## AI-assisted project
+> 
+> Hi, human here. I designed the architecture and used AI to implement this project. While I actively use it in my own homelab, I cannot provide any warranties or guarantees.
+>
+> This software has not undergone a security audit and is **not intended for direct exposure to public networks**. Use it at your own risk, especially in security-sensitive or internet-facing environments.
+
 ## Architecture
 
 ```text
